@@ -128,3 +128,9 @@ Search entries by keyword:
 * All commands prompt for the vault password securely.
 
 ---
+
+## Contribution
+
+Check the [CONTRIBUTING.md](https://github.com/SpikeTheDragon40k/sshman/blob/main/CONTRIBUTING.md)
+
+---
