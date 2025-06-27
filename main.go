@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"aes"
 	"cypher"
+	"crypto/aes"
+    "crypto/cipher"
 
 	"github.com/atotto/clipboard"
 	"github.com/urfave/cli/v2"
