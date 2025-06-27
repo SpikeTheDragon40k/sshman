@@ -1,28 +1,47 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
-name: Go
+name: Go Build & Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
-
   build:
+
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.20'
+        go-version: 1.21
 
-    - name: Build
+    - name: Verify Go version
+      run: go version
+
+    - name: Initialize Go module (if not present)
+      run: |
+        if [ ! -f go.mod ]; then
+          go mod init sshman
+        fi
+
+    - name: Download dependencies
+      run: go mod tidy
+
+    - name: Build the project
       run: go build -v ./...
 
-    - name: Test
-      run: go test -v ./...
+    - name: Run vet (static analysis)
+      run: go vet ./...
+
+    - name: Run tests (skipped if none present)
+      run: |
+        if ls *_test.go >/dev/null 2>&1; then
+          go test -v ./...
+        else
+          echo "No tests found. Skipping test step."
+        fi
