@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -14,8 +16,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
-	"crypto/aes"
-	"crypto/cipher"
+
 
 	"github.com/atotto/clipboard"
 	"github.com/urfave/cli/v2"
