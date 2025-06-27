@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"aes"
+	"cypher"
 
 	"github.com/atotto/clipboard"
 	"github.com/urfave/cli/v2"
