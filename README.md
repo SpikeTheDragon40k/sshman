@@ -129,6 +129,14 @@ Search entries by keyword:
 
 ---
 
+## To-Do
+
+- [] Windows and Mac Versions
+- [] A Gui (?)
+- [] Ubikey/TOTP integration
+
+---
+
 ## Contribution
 
 Check the [CONTRIBUTING.md](https://github.com/SpikeTheDragon40k/sshman/blob/main/CONTRIBUTING.md)
