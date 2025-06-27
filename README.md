@@ -68,6 +68,12 @@ Generate a new RSA key pair:
 ./sshman genkey --name mynewkey --bits 2048
 ```
 
+Send the key:
+```bash
+sshman sendkey --name myserver
+```
+
+
 Delete an entry:
 
 ```bash
