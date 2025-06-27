@@ -1,29 +1,29 @@
-FROM golang:1.21-alpine AS builder
+# Use official Go image with Go >= 1.23
+FROM golang:1.23 as builder
 
-# Install Git
-RUN apk add --no-cache git
-
-# Clone the repo and build
 WORKDIR /app
+
+# Clone the repository
 RUN git clone https://github.com/SpikeTheDragon40k/sshman.git . \
     && go mod tidy \
     && go build -o sshman
 
-# Base image
-FROM alpine:latest
+# Runtime stage
+FROM debian:bookworm-slim
 
-# Install required tools: openssh for SSH, bash and xclip for clipboard
-RUN apk add --no-cache openssh bash xclip
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates openssh-client xclip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /root/
+WORKDIR /data
 
 # Copy the compiled binary
 COPY --from=builder /app/sshman /usr/local/bin/sshman
 
-# Copy entrypoint script
+# Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Entrypoint script will handle vault creation if needed
 ENTRYPOINT ["/entrypoint.sh"]
+CMD ["sshman", "list"]
