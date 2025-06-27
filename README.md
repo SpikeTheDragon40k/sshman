@@ -1,18 +1,20 @@
 # sshman
 
-`sshman` is a simple command-line SSH key and connection manager that stores your SSH entries securely in an encrypted vault file (`vault.vssh`). It supports adding, listing, updating, deleting, and searching SSH entries, generating RSA key pairs, copying SSH commands to the clipboard, and launching direct SSH connections.
+`sshman` is a simple command-line SSH key and connection manager that stores your SSH entries securely in an encrypted vault file (`vault.vssh`). Unlike traditional SSH key managers that save private keys as files (e.g., in `~/.ssh`), **`sshman` keeps SSH private keys encrypted inside the vault file and loads them only in memory during use**, greatly reducing the risk of key leakage from disk. It supports adding, listing, updating, deleting, and searching SSH entries, generating RSA key pairs, copying SSH commands to the clipboard, sending public keys to remote servers, and launching direct SSH connections.
 
 ---
 
 ## Features
 
-- Encrypted vault storage using AES-GCM and Argon2 for key derivation
-- Secure password prompt with hidden input
-- Custom vault file with `.vssh` extension
-- Add, update, delete, list, and search SSH entries (name, user, host, key path)
-- Generate RSA SSH key pairs using system `ssh-keygen`
-- Copy SSH command to clipboard for quick use
-- Direct SSH connection launch from vault entries
+* Encrypted vault storage using AES-GCM and Argon2 for key derivation
+* SSH private keys securely stored only inside the encrypted vault file and kept in memory during usage (no keys saved as separate files on disk)
+* Secure password prompt with hidden input
+* Custom vault file with `.vssh` extension
+* Add, update, delete, list, and search SSH entries (name, user, host, key data)
+* Generate RSA SSH key pairs internally without writing private keys to disk
+* Send public keys to remote servers for passwordless login setup
+* Copy SSH command to clipboard for quick use
+* Direct SSH connection launch from vault entries
 
 ---
 
