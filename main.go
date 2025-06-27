@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,14 +18,16 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
 
 type Entry struct {
-	Name string `json:"name"`
-	User string `json:"user"`
-	Host string `json:"host"`
-	Key  string `json:"key"`
+	Name   string `json:"name"`
+	User   string `json:"user"`
+	Host   string `json:"host"`
+	Key    string `json:"key"`             // private key PEM content
+	PubKey string `json:"pubkey,omitempty"` // public key authorized_keys format
 }
 
 const vaultFile = "vault.vssh"
@@ -109,6 +113,31 @@ func readPassword(prompt string) (string, error) {
 	return string(bytes.TrimSpace(bytePassword)), nil
 }
 
+func generateRSAKeyPair(bits int) (privateKeyPEM string, publicKeyAuthorized string, err error) {
+	privKey, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		return "", "", err
+	}
+	privDER := x509.MarshalPKCS1PrivateKey(privKey)
+	privBlock := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privDER,
+	}
+	privPEMBytes := pem.EncodeToMemory(privBlock)
+	if privPEMBytes == nil {
+		return "", "", errors.New("failed to encode private key")
+	}
+	privPEM := string(privPEMBytes)
+
+	pub, err := ssh.NewPublicKey(&privKey.PublicKey)
+	if err != nil {
+		return "", "", err
+	}
+	pubAuthorized := string(ssh.MarshalAuthorizedKey(pub))
+
+	return privPEM, pubAuthorized, nil
+}
+
 func main() {
 	app := &cli.App{
 		Name:  "sshman",
@@ -130,12 +159,13 @@ func main() {
 			},
 			{
 				Name:  "add",
-				Usage: "Add new SSH entry",
+				Usage: "Add new SSH entry with existing private key PEM content",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name", Required: true},
 					&cli.StringFlag{Name: "user", Required: true},
 					&cli.StringFlag{Name: "host", Required: true},
-					&cli.StringFlag{Name: "key", Required: true},
+					&cli.StringFlag{Name: "key", Required: true}, // private key PEM content (as string)
+					&cli.StringFlag{Name: "pubkey"},              // optional public key (authorized_keys)
 				},
 				Action: func(c *cli.Context) error {
 					password, err := readPassword("Vault password: ")
@@ -148,10 +178,11 @@ func main() {
 					}
 
 					entry := Entry{
-						Name: c.String("name"),
-						User: c.String("user"),
-						Host: c.String("host"),
-						Key:  c.String("key"),
+						Name:   c.String("name"),
+						User:   c.String("user"),
+						Host:   c.String("host"),
+						Key:    c.String("key"),
+						PubKey: c.String("pubkey"),
 					}
 					entries = append(entries, entry)
 
@@ -198,7 +229,20 @@ func main() {
 					name := c.String("name")
 					for _, e := range entries {
 						if e.Name == name {
-							cmd := fmt.Sprintf("ssh %s@%s -i %s", e.User, e.Host, e.Key)
+							// Create temp file for private key since ssh requires a file
+							tmpFile, err := ioutil.TempFile("", "sshkey-*")
+							if err != nil {
+								return err
+							}
+							defer os.Remove(tmpFile.Name())
+
+							if _, err := tmpFile.Write([]byte(e.Key)); err != nil {
+								tmpFile.Close()
+								return err
+							}
+							tmpFile.Close()
+
+							cmd := fmt.Sprintf("ssh %s@%s -i %s", e.User, e.Host, tmpFile.Name())
 							if err := clipboard.WriteAll(cmd); err != nil {
 								return err
 							}
@@ -248,10 +292,11 @@ func main() {
 				Name:  "update",
 				Usage: "Update entry",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "name", Required: true},
-					&cli.StringFlag{Name: "user"},
-					&cli.StringFlag{Name: "host"},
-					&cli.StringFlag{Name: "key"},
+					 &cli.StringFlag{Name: "name", Required: true},
+					 &cli.StringFlag{Name: "user"},
+					 &cli.StringFlag{Name: "host"},
+					 &cli.StringFlag{Name: "key"},
+					 &cli.StringFlag{Name: "pubkey"},
 				},
 				Action: func(c *cli.Context) error {
 					password, err := readPassword("Vault password: ")
@@ -263,23 +308,26 @@ func main() {
 						return err
 					}
 					name := c.String("name")
-					updated := false
+					var found bool
 					for i := range entries {
 						if entries[i].Name == name {
-							if c.IsSet("user") {
+							found = true
+							if c.String("user") != "" {
 								entries[i].User = c.String("user")
 							}
-							if c.IsSet("host") {
+							if c.String("host") != "" {
 								entries[i].Host = c.String("host")
 							}
-							if c.IsSet("key") {
+							if c.String("key") != "" {
 								entries[i].Key = c.String("key")
 							}
-							updated = true
+							if c.String("pubkey") != "" {
+								entries[i].PubKey = c.String("pubkey")
+							}
 							break
 						}
 					}
-					if !updated {
+					if !found {
 						return errors.New("entry not found")
 					}
 					if err := saveVault(entries, password); err != nil {
@@ -290,10 +338,10 @@ func main() {
 				},
 			},
 			{
-				Name:  "search",
-				Usage: "Search entries by keyword",
+				Name:  "connect",
+				Usage: "Connect to host using stored private key",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "query", Required: true},
+					&cli.StringFlag{Name: "name", Required: true},
 				},
 				Action: func(c *cli.Context) error {
 					password, err := readPassword("Vault password: ")
@@ -304,50 +352,87 @@ func main() {
 					if err != nil {
 						return err
 					}
-					query := c.String("query")
-					found := false
-					for _, e := range entries {
-						if strings.Contains(e.Name, query) || strings.Contains(e.User, query) || strings.Contains(e.Host, query) {
-							fmt.Printf("%s: %s@%s\n", e.Name, e.User, e.Host)
-							found = true
+					name := c.String("name")
+					var e *Entry
+					for i := range entries {
+						if entries[i].Name == name {
+							e = &entries[i]
+							break
 						}
 					}
-					if !found {
-						fmt.Println("No matching entries found.")
+					if e == nil {
+						return errors.New("entry not found")
 					}
-					return nil
+					if e.Key == "" {
+						return errors.New("no private key in entry")
+					}
+
+					// Create temporary file for private key
+					tmpFile, err := ioutil.TempFile("", "sshkey-*")
+					if err != nil {
+						return err
+					}
+					defer os.Remove(tmpFile.Name())
+
+					if _, err := tmpFile.Write([]byte(e.Key)); err != nil {
+						tmpFile.Close()
+						return err
+					}
+					tmpFile.Close()
+
+					args := []string{"-i", tmpFile.Name(), fmt.Sprintf("%s@%s", e.User, e.Host)}
+					cmd := exec.Command("ssh", args...)
+					cmd.Stdin = os.Stdin
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+					fmt.Printf("Connecting to %s@%s...\n", e.User, e.Host)
+					return cmd.Run()
 				},
 			},
 			{
 				Name:  "genkey",
-				Usage: "Generate SSH key pair files",
+				Usage: "Generate new SSH key pair and store in vault",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name", Required: true},
-					&cli.StringFlag{Name: "bits", Value: "2048"},
+					&cli.StringFlag{Name: "user", Required: true},
+					&cli.StringFlag{Name: "host", Required: true},
+					&cli.IntFlag{Name: "bits", Value: 2048},
 				},
 				Action: func(c *cli.Context) error {
-					name := c.String("name")
-					bits := c.Int("bits")
-					if bits != 2048 && bits != 4096 {
-						return errors.New("only 2048 or 4096 bits allowed")
+					password, err := readPassword("Vault password: ")
+					if err != nil {
+						return err
 					}
-					keyPath := name + ".key"
-					pubKeyPath := name + ".key.pub"
+					entries, err := loadVault(password)
+					if err != nil {
+						return err
+					}
 
-					// Use ssh-keygen to generate key (system must have ssh-keygen)
-					cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", fmt.Sprintf("%d", bits), "-f", keyPath, "-N", "")
-					cmd.Stderr = os.Stderr
-					cmd.Stdout = os.Stdout
-					if err := cmd.Run(); err != nil {
-						return fmt.Errorf("ssh-keygen failed: %w", err)
+					bits := c.Int("bits")
+					privKeyPEM, pubKeyAuthorized, err := generateRSAKeyPair(bits)
+					if err != nil {
+						return err
 					}
-					fmt.Printf("Key pair generated:\nPrivate: %s\nPublic: %s\n", keyPath, pubKeyPath)
+
+					entry := Entry{
+						Name:   c.String("name"),
+						User:   c.String("user"),
+						Host:   c.String("host"),
+						Key:    privKeyPEM,
+						PubKey: pubKeyAuthorized,
+					}
+					entries = append(entries, entry)
+
+					if err := saveVault(entries, password); err != nil {
+						return err
+					}
+					fmt.Println("Key pair generated and saved in vault.")
 					return nil
 				},
 			},
 			{
-				Name:  "connect",
-				Usage: "Connect to SSH host from vault",
+				Name:  "sendkey",
+				Usage: "Send public key to remote server's authorized_keys",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name", Required: true},
 				},
@@ -361,22 +446,32 @@ func main() {
 						return err
 					}
 					name := c.String("name")
-					for _, e := range entries {
-						if e.Name == name {
-							args := []string{}
-							if e.Key != "" {
-								args = append(args, "-i", e.Key)
-							}
-							args = append(args, fmt.Sprintf("%s@%s", e.User, e.Host))
-							cmd := exec.Command("ssh", args...)
-							cmd.Stdin = os.Stdin
-							cmd.Stdout = os.Stdout
-							cmd.Stderr = os.Stderr
-							fmt.Printf("Connecting to %s@%s...\n", e.User, e.Host)
-							return cmd.Run()
+					var entry *Entry
+					for i := range entries {
+						if entries[i].Name == name {
+							entry = &entries[i]
+							break
 						}
 					}
-					return errors.New("entry not found")
+					if entry == nil {
+						return errors.New("entry not found")
+					}
+					if entry.PubKey == "" {
+						return errors.New("no public key found in vault entry")
+					}
+
+					// Prepare the ssh command to add public key to remote authorized_keys
+					remote := fmt.Sprintf("%s@%s", entry.User, entry.Host)
+					pubKeyEscaped := strings.ReplaceAll(strings.TrimSpace(entry.PubKey), "'", "'\"'\"'")
+					cmdStr := fmt.Sprintf("mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '%s' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys", pubKeyEscaped)
+
+					sshCmd := exec.Command("ssh", remote, cmdStr)
+					sshCmd.Stdout = os.Stdout
+					sshCmd.Stderr = os.Stderr
+					sshCmd.Stdin = os.Stdin
+
+					fmt.Printf("Sending public key to %s...\n", remote)
+					return sshCmd.Run()
 				},
 			},
 		},
@@ -384,7 +479,6 @@ func main() {
 
 	err := app.Run(os.Args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		fmt.Println("Error:", err)
 	}
 }
