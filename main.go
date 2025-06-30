@@ -35,6 +35,22 @@ type Entry struct {
 
 const vaultFile = "vault.vssh"
 
+func printBanner() {
+	fmt.Println(`
+      ___           ___           ___           ___           ___           ___     
+     /\  \         /\  \         /\__\         /\__\         /\  \         /\__\    
+    /::\  \       /::\  \       /:/  /        /::|  |       /::\  \       /::|  |   
+   /:/\ \  \     /:/\ \  \     /:/__/        /:|:|  |      /:/\:\  \     /:|:|  |   
+  _\:\~\ \  \   _\:\~\ \  \   /::\  \ ___   /:/|:|__|__   /::\~\:\  \   /:/|:|  |__ 
+ /\ \:\ \ \__\ /\ \:\ \ \__\ /:/\:\  /\__\ /:/ |::::\__\ /:/\:\ \:\__\ /:/ |:| /\__\
+ \:\ \:\ \/__/ \:\ \:\ \/__/ \/__\:\/:/  / \/__/~~/:/  / \/__\:\/:/  / \/__|:|/:/  /
+  \:\ \:\__\    \:\ \:\__\        \::/  /        /:/  /       \::/  /      |:/:/  / 
+   \:\/:/  /     \:\/:/  /        /:/  /        /:/  /        /:/  /       |::/  /  
+    \::/  /       \::/  /        /:/  /        /:/  /        /:/  /        /:/  /   
+     \/__/         \/__/         \/__/         \/__/         \/__/         \/__/    
+ Secure SSH Key Manager
+`)
+}
 func deriveKey(password string, salt []byte) []byte {
 	return argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
 }
@@ -150,6 +166,7 @@ func main() {
 				Name:  "init",
 				Usage: "Initialize vault (create empty vault file)",
 				Action: func(c *cli.Context) error {
+					printBanner()
 					if _, err := os.Stat(vaultFile); err == nil {
 						return fmt.Errorf("vault already exists at %s", vaultFile)
 					}
@@ -201,6 +218,7 @@ func main() {
 				Usage: "List all entries",
 				Action: func(c *cli.Context) error {
 					password, err := readPassword("Vault password: ")
+					printBanner()
 					if err != nil {
 						return err
 					}
