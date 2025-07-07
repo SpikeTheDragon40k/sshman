@@ -1,4 +1,6 @@
-![sshmanlogo](https://raw.githubusercontent.com/SpikeTheDragon40k/sshman/refs/heads/main/Sshmanlogo.png)
+<img src="https://raw.githubusercontent.com/SpikeTheDragon40k/sshman/refs/heads/main/Sshmanlogo.png" alt="sshmanlogo" width="200"/>
+<br>
+
 # sshman
 [![Go Reference](https://pkg.go.dev/badge/github.com/SpikeTheDragon40k/sshman.svg)](https://pkg.go.dev/github.com/SpikeTheDragon40k/sshman)
 
