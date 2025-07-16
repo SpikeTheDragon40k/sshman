@@ -138,6 +138,11 @@ Search entries by keyword:
 - [X] ~~Windows and Mac Versions~~
 - [ ] A Gui (?)
 - [ ] Ubikey/TOTP integration
+- [ ] More Key Types (ED25519, ECDSA, etc.)
+- [ ] More Commands (e.g., import/export, key rotation)
+- [ ] Better error handling and user feedback
+- [ ] Keyring Integration (e.g., Gnome Keyring, macOS Keychain)
+
 
 ---
 
