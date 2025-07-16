@@ -135,9 +135,9 @@ Search entries by keyword:
 
 ## To-Do
 
-- [] Windows and Mac Versions
-- [] A Gui (?)
-- [] Ubikey/TOTP integration
+- :heavy_check_mark: Windows and Mac Versions
+- [ ] A Gui (?)
+- [ ] Ubikey/TOTP integration
 
 ---
 
