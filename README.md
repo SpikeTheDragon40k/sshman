@@ -27,7 +27,7 @@
 Requires Go 1.18+ to build and system `ssh-keygen` for key generation.
 
 ```bash
-git clone https://github.com/yourusername/sshman.git
+git clone https://github.com/SpikeTheDragon40k/sshman.git
 cd sshman
 go build -o sshman main.go
 ```
