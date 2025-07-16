@@ -135,7 +135,7 @@ Search entries by keyword:
 
 ## To-Do
 
-- [X] Windows and Mac Versions
+- [X] ~~Windows and Mac Versions~~
 - [ ] A Gui (?)
 - [ ] Ubikey/TOTP integration
 
