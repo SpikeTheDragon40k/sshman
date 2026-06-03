@@ -78,7 +78,7 @@ Here are some ways you can contribute:
    git push origin feat/my-feature
    ```
 
-4. Open a Pull Request on GitHub targeting the `main` branch.
+4. Open a [Pull Request](https://github.com/SpikeTheDragon40k/sshman/blob/main/.github/PR_TEMPLATE/pull_request_template.md) on GitHub targeting the `main` branch.
 
 ---
 
