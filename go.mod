@@ -1,4 +1,4 @@
-module github.com/SpikeTheDragon40k/sshman
+module github.com/sshman-org/sshman
 
 go 1.24.0
 
