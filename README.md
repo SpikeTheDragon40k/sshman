@@ -2,7 +2,7 @@
 <br>
 
 # sshman
-[![Go Reference](https://pkg.go.dev/badge/github.com/SpikeTheDragon40k/sshman.svg)](https://pkg.go.dev/github.com/SpikeTheDragon40k/sshman)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sshman-org/sshman.svg)](https://pkg.go.dev/github.com/sshman-org/sshman)
 
 `sshman` is a simple command-line SSH key and connection manager that stores your SSH entries securely in an encrypted vault file (`vault.vssh`). Unlike traditional SSH key managers that save private keys as files (e.g., in `~/.ssh`), **`sshman` keeps SSH private keys encrypted inside the vault file and loads them only in memory during use**, greatly reducing the risk of key leakage from disk. It supports adding, listing, updating, deleting, and searching SSH entries, generating RSA key pairs, copying SSH commands to the clipboard, sending public keys to remote servers, and launching direct SSH connections.
 
