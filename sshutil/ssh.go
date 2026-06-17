@@ -2,41 +2,91 @@ package sshutil
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/SpikeTheDragon40k/sshman/model"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
-func WriteTempKey(keyPEM string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "sshkey-*")
-	if err != nil {
-		return "", err
+var validHostRe = regexp.MustCompile(`^[a-zA-Z0-9._:%\[\]-]+$`)
+var validUserRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+func ValidateEntry(e *model.Entry) error {
+	if e.Name == "" {
+		return fmt.Errorf("name is required")
 	}
-	if _, err := tmpFile.Write([]byte(keyPEM)); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return "", err
+	if e.User == "" {
+		return fmt.Errorf("user is required")
 	}
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
-		return "", err
+	if e.Host == "" {
+		return fmt.Errorf("host is required")
 	}
-	return tmpFile.Name(), nil
+	if !validUserRe.MatchString(e.User) {
+		return fmt.Errorf("invalid user %q: must match %s", e.User, validUserRe.String())
+	}
+	if !validHostRe.MatchString(e.Host) {
+		return fmt.Errorf("invalid host %q: must match %s", e.Host, validHostRe.String())
+	}
+	if e.Port < 0 || e.Port > 65535 {
+		return fmt.Errorf("invalid port %d: must be 0-65535", e.Port)
+	}
+	return nil
+}
+
+func sshHardeningArgs() []string {
+	return []string{
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "PasswordAuthentication=no",
+		"-o", "IdentitiesOnly=yes",
+	}
 }
 
 func Connect(entry *model.Entry) error {
 	if entry.Key == "" {
 		return fmt.Errorf("no private key in entry %q", entry.Name)
 	}
-	tmpPath, err := WriteTempKey(entry.Key)
-	if err != nil {
-		return fmt.Errorf("failed to write temp key: %w", err)
-	}
-	defer os.Remove(tmpPath)
 
-	args := []string{"-i", tmpPath}
+	tmpDir, err := os.MkdirTemp("", "sshman-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	sockPath := filepath.Join(tmpDir, "agent.sock")
+	ag := agent.NewKeyring()
+
+	rawKey, err := ssh.ParseRawPrivateKey([]byte(entry.Key))
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	if err := ag.Add(agent.AddedKey{PrivateKey: rawKey}); err != nil {
+		return fmt.Errorf("failed to add key to agent: %w", err)
+	}
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		return fmt.Errorf("failed to listen on agent socket: %w", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go agent.ServeAgent(ag, conn)
+		}
+	}()
+
+	args := append(sshHardeningArgs())
 	if entry.Port > 0 && entry.Port != 22 {
 		args = append(args, "-p", fmt.Sprintf("%d", entry.Port))
 	}
@@ -46,36 +96,33 @@ func Connect(entry *model.Entry) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	fmt.Printf("Connecting to %s...\n", entry.Addr())
-	return cmd.Run()
-}
+	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+sockPath)
 
-func BuildSSHCommand(entry *model.Entry) (string, string, error) {
-	if entry.Key == "" {
-		return "", "", fmt.Errorf("no private key in entry %q", entry.Name)
-	}
-	tmpPath, err := WriteTempKey(entry.Key)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to write temp key: %w", err)
-	}
-	cmd := fmt.Sprintf("ssh %s -i %s", entry.AddrPort(), tmpPath)
-	return cmd, tmpPath, nil
+	return cmd.Run()
 }
 
 func SendPublicKey(entry *model.Entry) error {
 	if entry.PubKey == "" {
 		return fmt.Errorf("no public key in entry %q", entry.Name)
 	}
+
+	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(entry.PubKey)); err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
+
 	remote := entry.Addr()
-	pubKeyEscaped := strings.ReplaceAll(strings.TrimSpace(entry.PubKey), "'", "'\"'\"'")
+	quotedKey := fmt.Sprintf("'%s'", strings.ReplaceAll(strings.TrimSpace(entry.PubKey), "'", "'\"'\"'"))
 	cmdStr := fmt.Sprintf(
-		"mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '%s' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys",
-		pubKeyEscaped,
+		"mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo %s >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys",
+		quotedKey,
 	)
-	sshCmd := exec.Command("ssh", remote, cmdStr)
+
+	args := append(sshHardeningArgs(), remote, cmdStr)
+	sshCmd := exec.Command("ssh", args...)
 	sshCmd.Stdout = os.Stdout
 	sshCmd.Stderr = os.Stderr
 	sshCmd.Stdin = os.Stdin
+	sshCmd.Env = append(os.Environ())
 	fmt.Printf("Sending public key to %s...\n", remote)
 	return sshCmd.Run()
 }

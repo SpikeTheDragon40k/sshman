@@ -1,0 +1,6 @@
+sshman
+sshman.exe
+vault.vssh
+*.vssh
+*.tmp
+dist/
