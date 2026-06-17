@@ -246,11 +246,7 @@ func copyCmd() *cli.Command {
 			if entry == nil {
 				return errors.New("entry not found")
 			}
-			cmdStr, tmpPath, err := sshutil.BuildSSHCommand(entry)
-			if err != nil {
-				return err
-			}
-			defer os.Remove(tmpPath)
+			cmdStr := fmt.Sprintf("ssh %s", entry.AddrPort())
 			if err := clipboard.WriteAll(cmdStr); err != nil {
 				return fmt.Errorf("clipboard write failed: %w", err)
 			}

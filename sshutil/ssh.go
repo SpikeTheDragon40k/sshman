@@ -14,6 +14,11 @@ func WriteTempKey(keyPEM string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", err
+	}
 	if _, err := tmpFile.Write([]byte(keyPEM)); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())
