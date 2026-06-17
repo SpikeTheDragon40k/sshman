@@ -25,7 +25,11 @@ func readPassword(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(bytes.TrimSpace(bytePassword)), nil
+	password := string(bytes.TrimSpace(bytePassword))
+	for i := range bytePassword {
+		bytePassword[i] = 0
+	}
+	return password, nil
 }
 
 func printBanner() {
@@ -90,6 +94,13 @@ func initCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
+			confirm, err := readPassword("Confirm vault password: ")
+			if err != nil {
+				return err
+			}
+			if password != confirm {
+				return errors.New("passwords do not match")
+			}
 			return vault.Save(vf, password, []model.Entry{})
 		},
 		Flags: []cli.Flag{
@@ -135,6 +146,9 @@ func addCmd() *cli.Command {
 				Port:   c.Int("port"),
 				Key:    keyContent,
 				PubKey: c.String("pubkey"),
+			}
+			if err := sshutil.ValidateEntry(&entry); err != nil {
+				return err
 			}
 			entries = append(entries, entry)
 			if err := vault.Save(vf, password, entries); err != nil {
@@ -339,6 +353,9 @@ func updateCmd() *cli.Command {
 			if c.IsSet("pubkey") {
 				entry.PubKey = c.String("pubkey")
 			}
+			if err := sshutil.ValidateEntry(entry); err != nil {
+				return err
+			}
 			if err := vault.Save(vf, password, entries); err != nil {
 				return err
 			}
@@ -381,13 +398,14 @@ func connectCmd() *cli.Command {
 func genkeyCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "genkey",
-		Usage: "Generate new RSA SSH key pair and store in vault",
+		Usage: "Generate SSH key pair and store in vault",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name", Required: true},
 			&cli.StringFlag{Name: "user", Required: true},
 			&cli.StringFlag{Name: "host", Required: true},
 			&cli.IntFlag{Name: "port", Value: 22},
-			&cli.IntFlag{Name: "bits", Value: 2048},
+			&cli.StringFlag{Name: "type", Value: "ed25519", Usage: "key type: rsa or ed25519"},
+			&cli.IntFlag{Name: "bits", Value: 2048, Usage: "key size in bits (RSA only)"},
 			&cli.StringFlag{Name: "vault"},
 		},
 		Action: func(c *cli.Context) error {
@@ -403,7 +421,15 @@ func genkeyCmd() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load vault: %w", err)
 			}
-			kp, err := keygen.GenerateRSA(c.Int("bits"))
+			var kp *keygen.KeyPair
+			switch c.String("type") {
+			case "rsa":
+				kp, err = keygen.GenerateRSA(c.Int("bits"))
+			case "ed25519":
+				kp, err = keygen.GenerateEd25519()
+			default:
+				return fmt.Errorf("unsupported key type %q: use rsa or ed25519", c.String("type"))
+			}
 			if err != nil {
 				return err
 			}
@@ -414,6 +440,9 @@ func genkeyCmd() *cli.Command {
 				Port:   c.Int("port"),
 				Key:    kp.PrivatePEM,
 				PubKey: kp.PublicKey,
+			}
+			if err := sshutil.ValidateEntry(&entry); err != nil {
+				return err
 			}
 			entries = append(entries, entry)
 			if err := vault.Save(vf, password, entries); err != nil {

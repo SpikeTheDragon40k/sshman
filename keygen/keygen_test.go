@@ -40,3 +40,22 @@ func TestGenerateRSA4096(t *testing.T) {
 		t.Fatal("expected non-empty private key PEM")
 	}
 }
+
+func TestGenerateEd25519(t *testing.T) {
+	kp, err := GenerateEd25519()
+	if err != nil {
+		t.Fatalf("GenerateEd25519 failed: %v", err)
+	}
+	if kp.PrivatePEM == "" {
+		t.Fatal("expected non-empty private key PEM")
+	}
+	if kp.PublicKey == "" {
+		t.Fatal("expected non-empty public key")
+	}
+	if !strings.HasPrefix(kp.PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
+		t.Fatal("private key PEM has wrong header")
+	}
+	if !strings.HasPrefix(kp.PublicKey, "ssh-ed25519 ") {
+		t.Fatal("public key should start with ssh-ed25519")
+	}
+}
