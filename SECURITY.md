@@ -1,3 +1,21 @@
+# Security Policy
+
+## Supported versions
+
+Security fixes are made on the default branch and in the latest release. Vaults in older formats stay readable, so upgrading is always safe.
+
+## Scope and threat model (summary)
+
+sshman protects SSH private keys and connection profiles **at rest**, in an AES-256-GCM vault keyed with Argon2id. During `connect`, it limits the decrypted key to the sshman process and a read-only, session-scoped agent that is never forwarded. In scope:
+
+* recovering vault contents without the password, or tampering with them undetected;
+* sshman following symlinks or using unsafe locations or permissions;
+* a remote host, ssh_config setting or crafted entry obtaining use of the vault key;
+* command or option injection through entry fields or public keys;
+* secrets in arguments, output, logs or files on disk.
+
+Out of scope: malware or another process running as the same user or as root (it can read memory or keylog the password), weak vault passwords chosen despite the policy, and compromise of OpenSSH itself. See the "Security model" section of the README and `docs/remediation/` for details and accepted risks.
+
 ## Reporting a Vulnerability
 
 If you believe you’ve found a security vulnerability in **sshman**, please report it privately and responsibly. **Do not open a public GitHub issue for security reports.**
