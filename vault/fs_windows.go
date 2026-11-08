@@ -210,8 +210,12 @@ func restrictFile(f *os.File) error {
 	if err != nil {
 		return err
 	}
-	return windows.SetSecurityInfo(windows.Handle(f.Fd()), windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+	// By path: handles from os.OpenFile lack WRITE_DAC.
+	if err := windows.SetNamedSecurityInfo(f.Name(), windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		return fmt.Errorf("restrict access to %s: %w", f.Name(), err)
+	}
+	return nil
 }
 
 func checkDir(dir string) error {

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sshman-org/sshman/model"
 	"golang.org/x/crypto/ssh"
@@ -137,6 +138,7 @@ func requireSSH(t *testing.T) {
 }
 
 func TestConnectInprocServer(t *testing.T) {
+	defer watchdog(t, 60*time.Second)()
 	requireSSH(t)
 	t.Setenv("SSH_AUTH_SOCK", "")
 	priv, pub := genEd25519(t, "")
@@ -168,6 +170,7 @@ func TestConnectInprocServer(t *testing.T) {
 // The session's agent endpoint (unix socket or named pipe) serves exactly
 // one key read-only, and disappears when the session closes.
 func TestSessionAgentEndpoint(t *testing.T) {
+	defer watchdog(t, 30*time.Second)()
 	priv, pub := genEd25519(t, "")
 	s, err := startSession(&model.Entry{Name: "ep", Key: string(priv)})
 	if err != nil {
