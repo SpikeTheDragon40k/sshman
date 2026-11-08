@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -28,12 +29,19 @@ func acquire(path string, exclusive bool) (*fileLock, error) {
 	if err := checkFile(lockPath(path)); err != nil {
 		return nil, err
 	}
+	_, statErr := os.Lstat(lockPath(path))
 	f, err := os.OpenFile(lockPath(path), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		if !exclusive && errors.Is(err, fs.ErrPermission) {
 			return &fileLock{}, nil
 		}
 		return nil, err
+	}
+	if errors.Is(statErr, fs.ErrNotExist) {
+		if err := restrictFile(f); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
 	}
 	var flags uint32 = windows.LOCKFILE_FAIL_IMMEDIATELY
 	if exclusive {
@@ -91,9 +99,120 @@ func checkFile(path string) error {
 	return nil
 }
 
-// On Windows, POSIX permission bits are not meaningful and ACLs are not yet
-// inspected; see docs/remediation/DECISIONS.md (D-09).
-func checkOpenFile(*os.File, string) error { return nil }
+// checkOpenFile is the Windows counterpart of the Unix mode check (S-10):
+// the file must be owned by the current user (or SYSTEM/Administrators), and
+// its DACL must not grant read, write or permission changes to any other
+// account. Deny entries and inherit-only entries are ignored.
+func checkOpenFile(f *os.File, name string) error {
+	sd, err := windows.GetSecurityInfo(windows.Handle(f.Fd()), windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("read security descriptor of %s: %w", name, err)
+	}
+	user, err := currentUserSID()
+	if err != nil {
+		return err
+	}
+	trusted := trustedSIDs(user)
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return err
+	}
+	if owner == nil || !sidIn(owner, trusted) {
+		return fmt.Errorf("%w: %s is owned by %s, not by you", ErrUnsafe, name, sidName(owner))
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return err
+	}
+	hint := fmt.Sprintf("(run: icacls \"%s\" /inheritance:r /grant:r \"%%USERNAME%%:F\")", name)
+	if dacl == nil {
+		return fmt.Errorf("%w: %s has no access control list, so everyone can access it %s", ErrUnsafe, name, hint)
+	}
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			return err
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
+			continue
+		}
+		if ace.Mask&dangerousAccess == 0 {
+			continue
+		}
+		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if !sidIn(sid, trusted) {
+			return fmt.Errorf("%w: %s grants access to %s %s", ErrUnsafe, name, sidName(sid), hint)
+		}
+	}
+	return nil
+}
+
+// Rights that would let another account read the vault, change it, or
+// change who may access it.
+const dangerousAccess = windows.FILE_READ_DATA | windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
+	windows.GENERIC_READ | windows.GENERIC_WRITE | windows.GENERIC_ALL |
+	windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE
+
+func trustedSIDs(user *windows.SID) []*windows.SID {
+	out := []*windows.SID{user}
+	for _, t := range []windows.WELL_KNOWN_SID_TYPE{windows.WinLocalSystemSid, windows.WinBuiltinAdministratorsSid} {
+		if s, err := windows.CreateWellKnownSid(t); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func sidIn(s *windows.SID, set []*windows.SID) bool {
+	for _, t := range set {
+		if s.Equals(t) {
+			return true
+		}
+	}
+	return false
+}
+
+func sidName(s *windows.SID) string {
+	if s == nil {
+		return "nobody"
+	}
+	if acct, dom, _, err := s.LookupAccount(""); err == nil {
+		if dom != "" {
+			return dom + `\` + acct
+		}
+		return acct
+	}
+	return s.String()
+}
+
+func currentUserSID() (*windows.SID, error) {
+	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil, err
+	}
+	return tu.User.Sid.Copy()
+}
+
+// restrictFile replaces the inherited ACL of a newly created vault, backup or
+// lock file with a protected DACL granting full control to the current user
+// and SYSTEM only.
+func restrictFile(f *os.File) error {
+	user, err := currentUserSID()
+	if err != nil {
+		return err
+	}
+	sd, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;" + user.String() + ")(A;;FA;;;SY)")
+	if err != nil {
+		return err
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetSecurityInfo(windows.Handle(f.Fd()), windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}
 
 func checkDir(dir string) error {
 	fi, err := os.Stat(dir)

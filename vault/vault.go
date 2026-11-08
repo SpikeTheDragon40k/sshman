@@ -229,6 +229,10 @@ func save(path string, password []byte, entries []model.Entry, params Params) (e
 	if err = tmp.Chmod(0o600); err != nil {
 		return err
 	}
+	// On Windows, replace the inherited ACL with an owner-only one.
+	if err = restrictFile(tmp); err != nil {
+		return err
+	}
 	if _, err = tmp.Write(data); err != nil {
 		return err
 	}
@@ -306,6 +310,10 @@ func copyFile(src, dst string) error {
 	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := restrictFile(out); err != nil {
+		_ = out.Close()
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {

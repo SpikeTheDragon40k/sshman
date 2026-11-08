@@ -317,7 +317,7 @@ func TestValidateMalformedHostsAndUsers(t *testing.T) {
 	for _, h := range []string{
 		"exаmple.com",            // Cyrillic 'а' homoglyph
 		"еxample.com",            // Cyrillic 'е'
-		"example.com​",           // zero-width space
+		"example.com\u200b",           // zero-width space
 		strings.Repeat("a", 300), // over length
 		strings.Repeat("a.", 128) + "com",
 		"host\x00evil",

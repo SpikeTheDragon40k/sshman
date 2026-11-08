@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -30,9 +30,11 @@ type Options struct {
 	AcceptNewHostKey bool
 	// SSHPath overrides the ssh executable (tests). Default: "ssh" from PATH.
 	SSHPath string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// testArgs are prepended to the ssh arguments (tests only, e.g. -F).
+	testArgs []string
+	Stdin    io.Reader
+	Stdout   io.Writer
+	Stderr   io.Writer
 }
 
 func (o *Options) sshPath() string {
@@ -55,13 +57,6 @@ func (o *Options) streams() (io.Reader, io.Writer, io.Writer) {
 	}
 	return in, out, errw
 }
-
-// safePathRe matches paths that ssh_config will not reinterpret: no '%'
-// tokens, '~', '${VAR}' expansion or whitespace.
-var safePathRe = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
-
-// maxSocketPath stays below the smallest sun_path limit (104 on macOS).
-const maxSocketPath = 100
 
 // connectArgs builds the ssh argument list for authenticating with the
 // session agent (Q-02, S-01, S-05, S-06).
@@ -96,31 +91,15 @@ func connectArgs(e *model.Entry, sock, pubFile string, opts *Options) []string {
 	return append(args, opts.RemoteCommand...)
 }
 
-// session is a temporary directory holding the agent socket and the public
-// key file, plus the agent server.
+// session is a temporary directory holding the public key file, plus the
+// agent server (a unix socket in that directory, or a named pipe on
+// Windows). sock and pubFile are the values passed to ssh_config options.
 type session struct {
 	dir      string
 	sock     string
 	pubFile  string
 	listener net.Listener
 	wg       sync.WaitGroup
-}
-
-func sessionTempDir() (string, error) {
-	base := os.TempDir()
-	// Leave room for "/sshman-XXXXXXXXXX/agent.sock".
-	if !safePathRe.MatchString(base) || len(base)+30 > maxSocketPath {
-		base = "/tmp"
-	}
-	dir, err := os.MkdirTemp(base, "sshman-")
-	if err != nil {
-		return "", fmt.Errorf("failed to create session directory: %w", err)
-	}
-	if !safePathRe.MatchString(dir) {
-		_ = os.RemoveAll(dir)
-		return "", fmt.Errorf("temporary directory %q contains characters ssh would reinterpret; set TMPDIR to a simple path", dir)
-	}
-	return dir, nil
 }
 
 // startSession loads key into a read-only agent served on a private socket.
@@ -137,18 +116,23 @@ func startSession(e *model.Entry) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &session{dir: dir, sock: filepath.Join(dir, "agent.sock"), pubFile: filepath.Join(dir, "id.pub")}
+	s := &session{dir: dir}
+	pubPath := filepath.Join(dir, "id.pub")
 	// Only the public key is written to disk; the private key never is.
-	if err := os.WriteFile(s.pubFile, ssh.MarshalAuthorizedKey(signer.PublicKey()), 0o600); err != nil {
+	if err := os.WriteFile(pubPath, ssh.MarshalAuthorizedKey(signer.PublicKey()), 0o600); err != nil {
 		s.close()
 		return nil, err
 	}
-	l, err := listenAgent(s.sock)
+	if s.pubFile, err = pathOption(pubPath); err != nil {
+		s.close()
+		return nil, err
+	}
+	l, sock, err := listenAgent(dir)
 	if err != nil {
 		s.close()
 		return nil, err
 	}
-	s.listener = l
+	s.listener, s.sock = l, sock
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -188,7 +172,7 @@ func Connect(e *model.Entry, opts Options) error {
 		return err
 	}
 	defer s.close()
-	return runSSH(opts.sshPath(), connectArgs(e, s.sock, s.pubFile, &opts), &opts)
+	return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), connectArgs(e, s.sock, s.pubFile, &opts)...), &opts)
 }
 
 // runSSH runs ssh in the foreground. SIGINT is left to ssh (it shares the
