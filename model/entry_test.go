@@ -109,3 +109,25 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("expected 0 results, got %d", len(r))
 	}
 }
+
+// Q-05 / P8: duplicates from old vaults are removed one at a time.
+func TestDeleteByNameRemovesOnlyFirst(t *testing.T) {
+	entries := []Entry{{Name: "d", Host: "h1"}, {Name: "x"}, {Name: "d", Host: "h2"}}
+	result, found := DeleteByName(entries, "d")
+	if !found || len(result) != 2 || result[1].Host != "h2" {
+		t.Fatalf("got %+v", result)
+	}
+	if entries[0].Host != "h1" {
+		t.Fatal("input slice modified")
+	}
+	if CountByName(result, "d") != 1 {
+		t.Fatal("count")
+	}
+}
+
+func TestMatchesTags(t *testing.T) {
+	e := Entry{Name: "a", Tags: []string{"Prod", "web"}}
+	if !e.Matches("prod") || !e.HasTag("WEB") || e.HasTag("db") {
+		t.Fatal("tag matching")
+	}
+}
