@@ -33,6 +33,10 @@ func BackupPath(path string) string { return path + ".bak" }
 
 func lockPath(path string) string { return path + ".lock" }
 
+// Warnf reports non-fatal safety findings. The CLI sets it to print to
+// stderr; it is silent by default.
+var Warnf = func(format string, args ...any) {}
+
 // faultHook lets tests simulate a crash or I/O failure at a given point of
 // the write path. It is a no-op in production.
 var faultHook = func(string) error { return nil }

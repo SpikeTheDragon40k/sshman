@@ -195,10 +195,10 @@ func TestSaveLoadAndPermissions(t *testing.T) {
 }
 
 func TestLoadMissing(t *testing.T) {
-	if _, err := Load(filepath.Join(t.TempDir(), "nope.vssh"), pw("x")); !errors.Is(err, ErrNotFound) {
+	if _, err := Load(filepath.Join(filepath.Dir(newVaultPath(t)), "nope.vssh"), pw("x")); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
-	if _, err := Load(filepath.Join(t.TempDir(), "nodir", "v.vssh"), pw("x")); !errors.Is(err, ErrNotFound) {
+	if _, err := Load(filepath.Join(filepath.Dir(newVaultPath(t)), "nodir", "v.vssh"), pw("x")); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing dir: want ErrNotFound, got %v", err)
 	}
 }

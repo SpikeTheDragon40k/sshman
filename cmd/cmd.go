@@ -11,6 +11,7 @@ import (
 	"github.com/sshman-org/sshman/app"
 	"github.com/sshman-org/sshman/keygen"
 	"github.com/sshman-org/sshman/sshutil"
+	"github.com/sshman-org/sshman/vault"
 	"github.com/urfave/cli/v2"
 )
 
@@ -87,6 +88,7 @@ func newApp(c *cli.Context, env *Env) (*app.App, error) {
 		Prompt: env.Prompt, VaultPath: path,
 		Clipboard: clipboard.WriteAll,
 	}
+	vault.Warnf = func(format string, args ...any) { fmt.Fprintf(env.Stderr, format+"\n", args...) }
 	if env.Configure != nil {
 		env.Configure(a)
 	}

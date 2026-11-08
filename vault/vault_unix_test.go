@@ -5,8 +5,10 @@ package vault
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +119,19 @@ func TestWritableDirectoryRefused(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	if _, err := Load(path, pw("pw-dir")); !errors.Is(err, ErrUnsafe) {
 		t.Fatalf("world-writable dir: want ErrUnsafe, got %v", err)
+	}
+	// Group-writable: allowed with a warning (umask 002 setups).
+	if err := os.Chmod(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	var warned string
+	Warnf = func(f string, a ...any) { warned = fmt.Sprintf(f, a...) }
+	t.Cleanup(func() { Warnf = func(string, ...any) {} })
+	if _, err := Load(path, pw("pw-dir")); err != nil {
+		t.Fatalf("group-writable dir refused: %v", err)
+	}
+	if !strings.Contains(warned, "group-writable") {
+		t.Fatalf("no warning: %q", warned)
 	}
 	// Sticky world-writable directories (like /tmp) are accepted.
 	if err := os.Chmod(dir, 0o777|os.ModeSticky); err != nil {

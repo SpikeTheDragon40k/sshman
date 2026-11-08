@@ -153,8 +153,17 @@ func checkDir(dir string) error {
 	if int(st.Uid) != os.Geteuid() && st.Uid != 0 {
 		return fmt.Errorf("%w: directory %s is owned by uid %d", ErrUnsafe, dir, st.Uid)
 	}
-	if fi.Mode().Perm()&0o022 != 0 && fi.Mode()&fs.ModeSticky == 0 {
-		return fmt.Errorf("%w: directory %s is writable by other users (mode %04o); keep the vault in a private directory", ErrUnsafe, dir, fi.Mode().Perm())
+	if fi.Mode()&fs.ModeSticky == 0 {
+		perm := fi.Mode().Perm()
+		if perm&0o002 != 0 {
+			return fmt.Errorf("%w: directory %s is writable by all users (mode %04o); keep the vault in a private directory", ErrUnsafe, dir, perm)
+		}
+		if perm&0o020 != 0 {
+			// Common with umask 002 and per-user groups. Members of the
+			// group could delete or replace the vault (denial of service);
+			// they cannot read it or make sshman follow a link.
+			Warnf("warning: directory %s is group-writable (mode %04o); consider: chmod g-w %q", dir, perm, dir)
+		}
 	}
 	return nil
 }
