@@ -172,6 +172,10 @@ func readVaultFile(path string) ([]byte, error) {
 	if err := checkOpenFile(f, path); err != nil {
 		return nil, err
 	}
+	// Refuse oversized files before reading anything into memory.
+	if fi, err := f.Stat(); err == nil && fi.Size() > maxVaultSize {
+		return nil, fmt.Errorf("%w: file larger than %d bytes", ErrFormat, maxVaultSize)
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxVaultSize+1))
 	if err != nil {
 		return nil, err
