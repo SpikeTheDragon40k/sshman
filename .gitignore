@@ -4,3 +4,4 @@ vault.vssh
 *.vssh
 *.tmp
 dist/
+!vault/testdata/*.vssh

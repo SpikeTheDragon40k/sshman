@@ -101,7 +101,7 @@ func initCmd() *cli.Command {
 			if password != confirm {
 				return errors.New("passwords do not match")
 			}
-			return vault.Save(vf, password, []model.Entry{})
+			return vault.Save(vf, []byte(password), []model.Entry{})
 		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "vault", Usage: "path to vault file"},
@@ -131,7 +131,7 @@ func addCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return fmt.Errorf("failed to load vault: %w", err)
 			}
@@ -151,7 +151,7 @@ func addCmd() *cli.Command {
 				return err
 			}
 			entries = append(entries, entry)
-			if err := vault.Save(vf, password, entries); err != nil {
+			if err := vault.Save(vf, []byte(password), entries); err != nil {
 				return fmt.Errorf("failed to save vault: %w", err)
 			}
 			fmt.Println("Entry added successfully.")
@@ -177,7 +177,7 @@ func listCmd() *cli.Command {
 				return err
 			}
 			printBanner()
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -214,7 +214,7 @@ func searchCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -252,7 +252,7 @@ func copyCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -287,7 +287,7 @@ func deleteCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -295,7 +295,7 @@ func deleteCmd() *cli.Command {
 			if !found {
 				return errors.New("entry not found")
 			}
-			if err := vault.Save(vf, password, newEntries); err != nil {
+			if err := vault.Save(vf, []byte(password), newEntries); err != nil {
 				return err
 			}
 			fmt.Println("Entry deleted.")
@@ -326,7 +326,7 @@ func updateCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -356,7 +356,7 @@ func updateCmd() *cli.Command {
 			if err := sshutil.ValidateEntry(entry); err != nil {
 				return err
 			}
-			if err := vault.Save(vf, password, entries); err != nil {
+			if err := vault.Save(vf, []byte(password), entries); err != nil {
 				return err
 			}
 			fmt.Println("Entry updated.")
@@ -382,7 +382,7 @@ func connectCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
@@ -417,7 +417,7 @@ func genkeyCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return fmt.Errorf("failed to load vault: %w", err)
 			}
@@ -445,7 +445,7 @@ func genkeyCmd() *cli.Command {
 				return err
 			}
 			entries = append(entries, entry)
-			if err := vault.Save(vf, password, entries); err != nil {
+			if err := vault.Save(vf, []byte(password), entries); err != nil {
 				return fmt.Errorf("failed to save vault: %w", err)
 			}
 			fmt.Println("Key pair generated and saved in vault.")
@@ -471,7 +471,7 @@ func sendkeyCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := vault.Load(vf, password)
+			entries, err := vault.Load(vf, []byte(password))
 			if err != nil {
 				return err
 			}
