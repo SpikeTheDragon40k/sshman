@@ -26,7 +26,7 @@ cd sshman
 go build -trimpath -o sshman .
 ```
 
-Release binaries are built by CI on demand from a version tag (Actions → Release → Run workflow). Each release ships a `SHA256SUMS` file and a GitHub build-provenance attestation:
+Releases are made on demand: Actions → Release → Run workflow, enter a new version (e.g. `v1.2.3`). The workflow tests and builds the selected branch, creates the tag and opens a draft release. Each release ships a `SHA256SUMS` file and a GitHub build-provenance attestation:
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing

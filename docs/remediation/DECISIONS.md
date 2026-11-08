@@ -58,7 +58,7 @@ POSIX mode checks are skipped on Windows. ACL inspection (owner-only DACL) is no
 Win32-OpenSSH's `ssh.exe` reads the agent from a named pipe. Serving one securely (with a DACL restricted to the current user) needs either `go-winio` (a new dependency) or about 150 lines of `x/sys/windows` code. It also can't be validated in this environment, only on a Windows runner with interactive OpenSSH. Rather than ship an untested agent transport on the credential path, `connect` and `sendkey --via` return a clear error on Windows. Vault management, `genkey`, `sendkey` (without `--via`), `copy` and `doctor` work, and the unit suite passes on Windows CI. The README doesn't claim Windows `connect` support.
 
 ## D-11 GO-2026-5932 (x/crypto/openpgp)
-The module-level advisory is fixed only in a pseudo-version (`v0.58.1-0.2026…`). sshman doesn't import `openpgp`, and govulncheck reports it as not called. Pinning a pseudo-version for an unreachable package was rejected; upgrade to the next tagged x/crypto release (run `go get golang.org/x/crypto@latest` and the CI workflow).
+The module-level advisory is fixed only in a pseudo-version (`v0.58.1-0.2026…`). sshman doesn't import `openpgp`, and govulncheck reports it as not called. Pinning a pseudo-version for an unreachable package was rejected; Dependabot will propose the next tagged release.
 
 ## D-12 Backups
 The previous vault is hard-linked to `<vault>.bak` before each replacement (falling back to a copy), so recovery needs no extra I/O. `passwd` replaces the backup with the re-encrypted vault after verifying it, so no copy under the old password is left by sshman. Copies elsewhere, such as filesystem snapshots or cloud sync, are outside its control and documented. `restore` keeps the replaced file as `<vault>.corrupt`.
@@ -72,7 +72,9 @@ New keys: 3072 (default) or 4096. Imports: ≥ 2048, since existing 2048-bit key
 ## D-15 Rejected / deferred features
 These were not implemented: connection history (a write per connect churns the backup and records metadata); cloud sync; OS keychain caching; TUI and GUI; FIDO2 keys (x/crypto can't sign with `sk-*` private keys in-process). See the phase-4 report for scores.
 
-## D-16 No automatic GitHub Actions runs
-To keep Actions usage at zero, every workflow (CI, Fuzz, Release) has only a `workflow_dispatch` trigger, and the Dependabot configuration was removed. Pushes, pull requests, tags and schedules start nothing.
-- **Trade-off:** checks no longer gate merges automatically. Run the CI workflow on a branch before merging, and check dependencies and advisories periodically with `go list -m -u all` and `govulncheck ./...`.
-- **Re-enabling later:** add `push`/`pull_request` triggers to `ci.yml` and restore `.github/dependabot.yml`.
+## D-16 No automatic GitHub Actions workflow runs
+To keep Actions usage down, every workflow (CI, Fuzz, Release) has only a `workflow_dispatch` trigger. Pushes, pull requests, tags and schedules start no workflow.
+- **Dependabot is kept** (weekly Go module and Actions updates). Its update jobs are run by GitHub, and the PRs it opens start no CI, because CI is manual.
+- **Release** takes a new version as input, tests and builds the selected commit, then creates and pushes an annotated tag on it. It refuses a version that already exists, so tags are never moved, and creates a draft release.
+- **Trade-off:** checks no longer gate merges automatically. Run the CI workflow on a branch (including Dependabot branches) before merging.
+- **Re-enabling later:** add `push`/`pull_request` triggers to `ci.yml`.

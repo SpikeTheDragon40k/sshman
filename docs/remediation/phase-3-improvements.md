@@ -49,7 +49,7 @@ No package imports `cmd`, `model` imports nothing internal, and the vault never 
 
 ## 5. Documentation and developer experience
 
-README (installation, security model, upgrade notes, troubleshooting), CONTRIBUTING (dev loop, checks, integration tests), SECURITY (supported versions, threat model summary), `docs/ARCHITECTURE.md`, and CI, fuzz and release workflows (all started manually; see D-16).
+README (installation, security model, upgrade notes, troubleshooting), CONTRIBUTING (dev loop, checks, integration tests), SECURITY (supported versions, threat model summary), `docs/ARCHITECTURE.md`, CI, fuzz and release workflows (all started manually; see D-16) and Dependabot.
 
 ## 6. Acceptance gate
 
