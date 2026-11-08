@@ -156,7 +156,7 @@ The whole header is authenticated as GCM additional data. Vaults written by olde
 
 **sshman does not protect against** malware running as your user or as root: it could read memory, keylog the password or use the agent while a session is open. On Linux, sshman marks itself non-dumpable (blocking same-user ptrace) and disables core dumps on all Unix systems, but Go cannot guarantee that every copy of a secret is erased from memory. Backups or sync tools may keep older copies of the vault, possibly encrypted under an old password.
 
-See [SECURITY.md](SECURITY.md) and the audit and remediation reports in [`docs/`](docs/).
+See [SECURITY.md](SECURITY.md) and the remediation reports in [`docs/remediation/`](docs/remediation/).
 
 ---
 

@@ -1,6 +1,6 @@
 # Remediation status
 
-Branch `remediation` (from `review`). The audit (`docs/audit/`) describes upstream `sshman-org/sshman` at `0a430e9`, which is the same tree as this fork's `0a430e9`, so every finding applied unchanged.
+Branch `remediation` (from `review`). The security audit (kept on the `review` branch, not part of this change) describes upstream `sshman-org/sshman` at `0a430e9`, which is the same tree as this fork's `0a430e9`, so every finding applied unchanged.
 
 **Statuses:** CONFIRMED, PARTIALLY_CONFIRMED, NOT_REPRODUCED, FALSE_POSITIVE, FIXED, BLOCKED, ACCEPTED_RISK.
 "Verified" is how the finding was independently checked *before* the fix. "Test evidence" names the regression tests that now guard it. All named tests pass locally (Go 1.26.10, Linux) and in CI run [42459809140](https://github.com/SpikeTheDragon40k/sshman/actions/runs/42459809140) (Linux, macOS, Windows).
