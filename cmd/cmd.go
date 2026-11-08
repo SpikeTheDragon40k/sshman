@@ -1,39 +1,36 @@
+// Package cmd maps the command-line interface onto package app.
 package cmd
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"syscall"
 
-	"github.com/SpikeTheDragon40k/sshman/keygen"
-	"github.com/SpikeTheDragon40k/sshman/model"
-	"github.com/SpikeTheDragon40k/sshman/sshutil"
-	"github.com/SpikeTheDragon40k/sshman/vault"
 	"github.com/atotto/clipboard"
+	"github.com/sshman-org/sshman/app"
+	"github.com/sshman-org/sshman/keygen"
+	"github.com/sshman-org/sshman/sshutil"
+	"github.com/sshman-org/sshman/vault"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/term"
 )
 
-const DefaultVaultFile = "vault.vssh"
-
-func readPassword(prompt string) (string, error) {
-	fmt.Print(prompt)
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
-	if err != nil {
-		return "", err
-	}
-	password := string(bytes.TrimSpace(bytePassword))
-	for i := range bytePassword {
-		bytePassword[i] = 0
-	}
-	return password, nil
+// Env is the process environment injected into commands (tests replace it).
+type Env struct {
+	Stdin     io.Reader
+	Stdout    io.Writer
+	Stderr    io.Writer
+	Prompt    app.Prompter
+	Getenv    func(string) string
+	Configure func(*app.App) // optional hook for tests
 }
 
-func printBanner() {
-	fmt.Print(`
+// DefaultEnv uses the real terminal and process streams.
+func DefaultEnv() *Env {
+	return &Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Prompt: app.TTYPrompter{}, Getenv: os.Getenv}
+}
+
+const banner = `
   ______    ______   __    __  __       __   ______   __    __
  /      \  /      \ /  |  /  |/  \     /  | /      \ /  \  /  |
 /$$$$$$  |/$$$$$$  |$$ |  $$ |$$  \   /$$ |/$$$$$$  |$$  \ $$ |
@@ -43,443 +40,339 @@ $$      \ $$      \ $$    $$ |$$$$  /$$$$ |$$    $$ |$$$$  $$ |
 /  \__$$ |/  \__$$ |$$ |  $$ |$$ |$$$/ $$ |$$ |  $$ |$$ |$$$$ |
 $$    $$/ $$    $$/ $$ |  $$ |$$ | $/  $$ |$$ |  $$ |$$ | $$$ |
  $$$$$$/   $$$$$$/  $$/   $$/ $$/      $$/ $$/   $$/ $$/   $$/
-                                                               
+
  Secure SSH Key Manager
-`)
+`
+
+func vaultFlag() cli.Flag {
+	return &cli.StringFlag{Name: "vault", Usage: "path to the vault file (default: $SSHMAN_VAULT or <config dir>/sshman/vault.vssh)"}
 }
 
-func resolveKeyInput(value string) (string, error) {
-	if value == "" {
-		return "", nil
+// NewApp builds the CLI application.
+func NewApp(env *Env, version string) *cli.App {
+	return &cli.App{
+		Name:                 "sshman",
+		Usage:                "manage SSH keys and connections in an encrypted vault",
+		Version:              version,
+		EnableBashCompletion: true,
+		Reader:               env.Stdin,
+		Writer:               env.Stdout,
+		ErrWriter:            env.Stderr,
+		Flags:                []cli.Flag{vaultFlag()},
+		Commands:             Commands(env),
+		ExitErrHandler:       func(*cli.Context, error) {}, // main reports errors
+		CommandNotFound: func(c *cli.Context, name string) {
+			fmt.Fprintf(env.Stderr, "sshman: unknown command %q; run 'sshman help'\n", name)
+		},
 	}
-	if info, err := os.Stat(value); err == nil && !info.IsDir() {
-		data, err := os.ReadFile(value)
-		if err != nil {
-			return "", fmt.Errorf("failed to read key file %q: %w", value, err)
+}
+
+// newApp builds an app.App for a command invocation, resolving the vault
+// path from the command flag, the global flag or $SSHMAN_VAULT.
+func newApp(c *cli.Context, env *Env) (*app.App, error) {
+	flag := c.String("vault")
+	if flag == "" {
+		for _, p := range c.Lineage() {
+			if p.IsSet("vault") {
+				flag = p.String("vault")
+				break
+			}
 		}
-		return string(data), nil
 	}
-	return value, nil
+	path, err := app.ResolveVaultPath(flag, env.Getenv, env.Stderr)
+	if err != nil {
+		return nil, err
+	}
+	a := &app.App{
+		Stdin: env.Stdin, Stdout: env.Stdout, Stderr: env.Stderr,
+		Prompt: env.Prompt, VaultPath: path,
+		Clipboard: clipboard.WriteAll,
+	}
+	vault.Warnf = func(format string, args ...any) { fmt.Fprintf(env.Stderr, format+"\n", args...) }
+	if env.Configure != nil {
+		env.Configure(a)
+	}
+	return a, nil
 }
 
-func Commands() []*cli.Command {
+func action(env *Env, fn func(c *cli.Context, a *app.App) error) cli.ActionFunc {
+	return func(c *cli.Context) error {
+		a, err := newApp(c, env)
+		if err != nil {
+			return err
+		}
+		return fn(c, a)
+	}
+}
+
+func entryFlags(withPortDefault bool) []cli.Flag {
+	port := &cli.IntFlag{Name: "port", Usage: "SSH port"}
+	if withPortDefault {
+		port.Value = 22
+	}
+	return []cli.Flag{
+		&cli.StringFlag{Name: "name", Usage: "unique entry name", Required: true},
+		&cli.StringFlag{Name: "user", Usage: "remote user name", Required: withPortDefault},
+		&cli.StringFlag{Name: "host", Usage: "host name or IP address", Required: withPortDefault},
+		port,
+		&cli.StringSliceFlag{Name: "tag", Usage: "tag (repeatable or comma-separated)"},
+		&cli.StringFlag{Name: "notes", Usage: "free-text notes (stored encrypted; do not put secrets here)"},
+		&cli.BoolFlag{Name: "favorite", Usage: "mark as favorite"},
+		vaultFlag(),
+	}
+}
+
+func entryInput(c *cli.Context) app.EntryInput {
+	return app.EntryInput{
+		Name: c.String("name"), User: c.String("user"), Host: c.String("host"), Port: c.Int("port"),
+		Tags: c.StringSlice("tag"), Notes: c.String("notes"), Favorite: c.Bool("favorite"),
+	}
+}
+
+func nameFlag() cli.Flag {
+	return &cli.StringFlag{Name: "name", Aliases: []string{"n"}, Usage: "entry name", Required: true}
+}
+
+// Commands returns the subcommands.
+func Commands(env *Env) []*cli.Command {
 	return []*cli.Command{
-		initCmd(),
-		addCmd(),
-		listCmd(),
-		searchCmd(),
-		copyCmd(),
-		deleteCmd(),
-		updateCmd(),
-		connectCmd(),
-		genkeyCmd(),
-		sendkeyCmd(),
-	}
-}
-
-func initCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "init",
-		Usage: "Initialize vault (create empty vault file)",
-		Action: func(c *cli.Context) error {
-			printBanner()
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			if _, err := os.Stat(vf); err == nil {
-				return fmt.Errorf("vault already exists at %s", vf)
-			}
-			password, err := readPassword("Set vault password: ")
-			if err != nil {
-				return err
-			}
-			confirm, err := readPassword("Confirm vault password: ")
-			if err != nil {
-				return err
-			}
-			if password != confirm {
-				return errors.New("passwords do not match")
-			}
-			return vault.Save(vf, password, []model.Entry{})
+		{
+			Name:  "init",
+			Usage: "create a new, empty vault",
+			Flags: []cli.Flag{vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				fmt.Fprint(env.Stderr, banner)
+				return a.Init()
+			}),
 		},
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "vault", Usage: "path to vault file"},
+		{
+			Name:      "add",
+			Usage:     "add an entry with an existing private key",
+			UsageText: "sshman add --name NAME --user USER --host HOST [--port N] --key FILE|- [--pubkey LINE]",
+			Flags: append(entryFlags(true),
+				&cli.StringFlag{Name: "key", Usage: "private key file, or - to read it from stdin (raw key text is not accepted)", Required: true},
+				&cli.StringFlag{Name: "pubkey", Usage: "public key line to verify against the private key (optional; derived if omitted)"},
+			),
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Add(entryInput(c), c.String("key"), c.String("pubkey"))
+			}),
 		},
-	}
-}
-
-func addCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "add",
-		Usage: "Add new SSH entry",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "user", Required: true},
-			&cli.StringFlag{Name: "host", Required: true},
-			&cli.IntFlag{Name: "port", Value: 22},
-			&cli.StringFlag{Name: "key", Required: true},
-			&cli.StringFlag{Name: "pubkey"},
-			&cli.StringFlag{Name: "vault"},
+		{
+			Name:  "genkey",
+			Usage: "generate a key pair and store it in a new entry (prints the public key)",
+			Flags: append(entryFlags(true),
+				&cli.StringFlag{Name: "type", Value: "ed25519", Usage: "key type: ed25519 (recommended) or rsa"},
+				&cli.IntFlag{Name: "bits", Value: keygen.DefaultRSABits, Usage: "RSA key size: 3072 or 4096"},
+			),
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.GenKey(entryInput(c), c.String("type"), c.Int("bits"))
+			}),
 		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return fmt.Errorf("failed to load vault: %w", err)
-			}
-			keyContent, err := resolveKeyInput(c.String("key"))
-			if err != nil {
-				return err
-			}
-			entry := model.Entry{
-				Name:   c.String("name"),
-				User:   c.String("user"),
-				Host:   c.String("host"),
-				Port:   c.Int("port"),
-				Key:    keyContent,
-				PubKey: c.String("pubkey"),
-			}
-			if err := sshutil.ValidateEntry(&entry); err != nil {
-				return err
-			}
-			entries = append(entries, entry)
-			if err := vault.Save(vf, password, entries); err != nil {
-				return fmt.Errorf("failed to save vault: %w", err)
-			}
-			fmt.Println("Entry added successfully.")
-			return nil
+		{
+			Name:  "list",
+			Usage: "list entries",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "tag", Usage: "only entries with this tag"},
+				&cli.BoolFlag{Name: "favorites", Usage: "only favorites"},
+				&cli.IntFlag{Name: "key-older-than", Usage: "only entries whose key is older than `DAYS` (or of unknown age), for rotation reviews"},
+				&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.List(app.ListInput{Tag: c.String("tag"), Favorites: c.Bool("favorites"), JSON: c.Bool("json"), KeyOlderThan: c.Int("key-older-than")})
+			}),
 		},
-	}
-}
-
-func listCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "list",
-		Usage: "List all entries",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "vault"},
+		{
+			Name:  "search",
+			Usage: "search entries by name, user, host or tag",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "query", Aliases: []string{"q"}, Required: true},
+				&cli.StringFlag{Name: "tag", Usage: "only entries with this tag"},
+				&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.List(app.ListInput{Query: c.String("query"), Tag: c.String("tag"), JSON: c.Bool("json")})
+			}),
 		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			printBanner()
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			if len(entries) == 0 {
-				fmt.Println("No entries in vault.")
+		{
+			Name:  "show",
+			Usage: "show an entry's details and public key (never the private key)",
+			Flags: []cli.Flag{nameFlag(), &cli.BoolFlag{Name: "json", Usage: "JSON output"}, vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Show(c.String("name"), c.Bool("json"))
+			}),
+		},
+		{
+			Name:  "pubkey",
+			Usage: "print an entry's public key in authorized_keys format",
+			Flags: []cli.Flag{nameFlag(), vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.PubKey(c.String("name"))
+			}),
+		},
+		{
+			Name:  "copy",
+			Usage: "copy the ssh command for an entry to the clipboard",
+			Flags: []cli.Flag{nameFlag(), vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Copy(c.String("name"))
+			}),
+		},
+		{
+			Name:  "update",
+			Usage: "change fields of an entry",
+			Flags: []cli.Flag{
+				nameFlag(),
+				&cli.StringFlag{Name: "user"},
+				&cli.StringFlag{Name: "host"},
+				&cli.IntFlag{Name: "port"},
+				&cli.StringFlag{Name: "key", Usage: "replace the private key: file path or - for stdin"},
+				&cli.StringFlag{Name: "pubkey", Usage: "public key line (must match the private key)"},
+				&cli.StringSliceFlag{Name: "tag", Usage: "replace tags (repeatable or comma-separated; empty string clears)"},
+				&cli.StringFlag{Name: "notes"},
+				&cli.BoolFlag{Name: "favorite", Usage: "set or clear (--favorite=false) the favorite mark"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				var in app.UpdateInput
+				str := func(n string) *string {
+					if !c.IsSet(n) {
+						return nil
+					}
+					v := c.String(n)
+					return &v
+				}
+				in.User, in.Host, in.Notes, in.KeySrc, in.PubKey = str("user"), str("host"), str("notes"), str("key"), str("pubkey")
+				if c.IsSet("port") {
+					v := c.Int("port")
+					in.Port = &v
+				}
+				if c.IsSet("tag") {
+					v := c.StringSlice("tag")
+					in.Tags = &v
+				}
+				if c.IsSet("favorite") {
+					v := c.Bool("favorite")
+					in.Favorite = &v
+				}
+				return a.Update(c.String("name"), in)
+			}),
+		},
+		{
+			Name:  "rename",
+			Usage: "rename an entry",
+			Flags: []cli.Flag{nameFlag(), &cli.StringFlag{Name: "to", Usage: "new name", Required: true}, vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Rename(c.String("name"), c.String("to"))
+			}),
+		},
+		{
+			Name:  "delete",
+			Usage: "delete an entry",
+			Flags: []cli.Flag{nameFlag(), &cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "do not ask for confirmation"}, vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Delete(c.String("name"), c.Bool("yes"))
+			}),
+		},
+		{
+			Name:      "connect",
+			Usage:     "open an SSH session using the entry's vault key",
+			UsageText: "sshman connect --name NAME [--accept-new-host-key] [-- REMOTE COMMAND...]",
+			Flags: []cli.Flag{
+				nameFlag(),
+				&cli.BoolFlag{Name: "accept-new-host-key", Usage: "trust and record an unknown host key without asking (changed keys are still refused)"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Connect(c.String("name"), c.Bool("accept-new-host-key"), c.Args().Slice())
+			}),
+		},
+		{
+			Name:  "sendkey",
+			Usage: "install an entry's public key in the remote authorized_keys",
+			Description: "Logs in with your normal ssh setup (ssh may ask for the account password),\n" +
+				"or with another entry's vault key via --via. The key is added only if not already present.",
+			Flags: []cli.Flag{
+				nameFlag(),
+				&cli.StringFlag{Name: "via", Usage: "log in with this entry's vault key (e.g. the key being rotated out)"},
+				&cli.BoolFlag{Name: "accept-new-host-key", Usage: "trust and record an unknown host key without asking"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.SendKey(c.String("name"), c.String("via"), c.Bool("accept-new-host-key"))
+			}),
+		},
+		{
+			Name:  "passwd",
+			Usage: "change the vault password (re-encrypts with current parameters)",
+			Flags: []cli.Flag{vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Passwd()
+			}),
+		},
+		{
+			Name:      "completion",
+			Usage:     "print a shell completion script (bash or zsh)",
+			UsageText: "source <(sshman completion bash)",
+			ArgsUsage: "bash|zsh",
+			Action: func(c *cli.Context) error {
+				switch c.Args().First() {
+				case "bash":
+					fmt.Fprint(env.Stdout, bashCompletion)
+				case "zsh":
+					fmt.Fprint(env.Stdout, "autoload -U +X bashcompinit && bashcompinit\n"+bashCompletion)
+				default:
+					return fmt.Errorf("usage: sshman completion bash|zsh")
+				}
 				return nil
-			}
-			for _, e := range entries {
-				port := ""
-				if e.Port > 0 && e.Port != 22 {
-					port = fmt.Sprintf(":%d", e.Port)
-				}
-				fmt.Printf("  %s: %s@%s%s\n", e.Name, e.User, e.Host, port)
-			}
-			return nil
+			},
+		},
+		{
+			Name:  "doctor",
+			Usage: "check the vault location, permissions, format and ssh client (no password needed)",
+			Flags: []cli.Flag{vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Doctor()
+			}),
+		},
+		{
+			Name:  "restore",
+			Usage: "replace a damaged vault with its automatic backup",
+			Flags: []cli.Flag{&cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "do not ask for confirmation"}, vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Restore(c.Bool("yes"))
+			}),
 		},
 	}
 }
 
-func searchCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "search",
-		Usage: "Search entries by keyword",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "query", Aliases: []string{"q"}, Required: true},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			results := model.Search(entries, c.String("query"))
-			if len(results) == 0 {
-				fmt.Println("No matching entries found.")
-				return nil
-			}
-			for _, e := range results {
-				port := ""
-				if e.Port > 0 && e.Port != 22 {
-					port = fmt.Sprintf(":%d", e.Port)
-				}
-				fmt.Printf("  %s: %s@%s%s\n", e.Name, e.User, e.Host, port)
-			}
-			return nil
-		},
+// Run executes the CLI and returns the process exit code. Errors go to
+// stderr; stdout carries only command output.
+func Run(env *Env, args []string, version string) int {
+	err := NewApp(env, version).Run(args)
+	switch {
+	case err == nil:
+		return app.ExitOK
+	case errors.Is(err, app.ErrAborted):
+		fmt.Fprintln(env.Stderr, "Aborted.")
+		return app.ExitError
+	case sshutil.ExitCode(err) >= 0:
+		// ssh already reported the failure on stderr; pass its status on.
+		return sshutil.ExitCode(err)
 	}
+	fmt.Fprintln(env.Stderr, "Error:", err)
+	return app.ExitCode(err)
 }
 
-func copyCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "copy",
-		Usage: "Copy SSH command to clipboard",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			entry := model.FindByName(entries, c.String("name"))
-			if entry == nil {
-				return errors.New("entry not found")
-			}
-			cmdStr := fmt.Sprintf("ssh %s", entry.AddrPort())
-			if err := clipboard.WriteAll(cmdStr); err != nil {
-				return fmt.Errorf("clipboard write failed: %w", err)
-			}
-			fmt.Println("Copied to clipboard:", cmdStr)
-			return nil
-		},
-	}
+// bashCompletion completes commands and flags via urfave/cli's
+// --generate-bash-completion. It never lists entry names, which would
+// require the vault password.
+const bashCompletion = `_sshman_complete() {
+  local cur words
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  words=$("${COMP_WORDS[0]}" "${COMP_WORDS[@]:1:$COMP_CWORD-1}" --generate-bash-completion 2>/dev/null)
+  COMPREPLY=($(compgen -W "$words" -- "$cur"))
 }
-
-func deleteCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "delete",
-		Usage: "Delete entry by name",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			newEntries, found := model.DeleteByName(entries, c.String("name"))
-			if !found {
-				return errors.New("entry not found")
-			}
-			if err := vault.Save(vf, password, newEntries); err != nil {
-				return err
-			}
-			fmt.Println("Entry deleted.")
-			return nil
-		},
-	}
-}
-
-func updateCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "update",
-		Usage: "Update entry",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "user"},
-			&cli.StringFlag{Name: "host"},
-			&cli.IntFlag{Name: "port"},
-			&cli.StringFlag{Name: "key"},
-			&cli.StringFlag{Name: "pubkey"},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			entry := model.FindByName(entries, c.String("name"))
-			if entry == nil {
-				return errors.New("entry not found")
-			}
-			if c.IsSet("user") {
-				entry.User = c.String("user")
-			}
-			if c.IsSet("host") {
-				entry.Host = c.String("host")
-			}
-			if c.IsSet("port") {
-				entry.Port = c.Int("port")
-			}
-			if c.IsSet("key") {
-				keyContent, err := resolveKeyInput(c.String("key"))
-				if err != nil {
-					return err
-				}
-				entry.Key = keyContent
-			}
-			if c.IsSet("pubkey") {
-				entry.PubKey = c.String("pubkey")
-			}
-			if err := sshutil.ValidateEntry(entry); err != nil {
-				return err
-			}
-			if err := vault.Save(vf, password, entries); err != nil {
-				return err
-			}
-			fmt.Println("Entry updated.")
-			return nil
-		},
-	}
-}
-
-func connectCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "connect",
-		Usage: "Connect to host using stored private key",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			entry := model.FindByName(entries, c.String("name"))
-			if entry == nil {
-				return errors.New("entry not found")
-			}
-			return sshutil.Connect(entry)
-		},
-	}
-}
-
-func genkeyCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "genkey",
-		Usage: "Generate SSH key pair and store in vault",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "user", Required: true},
-			&cli.StringFlag{Name: "host", Required: true},
-			&cli.IntFlag{Name: "port", Value: 22},
-			&cli.StringFlag{Name: "type", Value: "ed25519", Usage: "key type: rsa or ed25519"},
-			&cli.IntFlag{Name: "bits", Value: 2048, Usage: "key size in bits (RSA only)"},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return fmt.Errorf("failed to load vault: %w", err)
-			}
-			var kp *keygen.KeyPair
-			switch c.String("type") {
-			case "rsa":
-				kp, err = keygen.GenerateRSA(c.Int("bits"))
-			case "ed25519":
-				kp, err = keygen.GenerateEd25519()
-			default:
-				return fmt.Errorf("unsupported key type %q: use rsa or ed25519", c.String("type"))
-			}
-			if err != nil {
-				return err
-			}
-			entry := model.Entry{
-				Name:   c.String("name"),
-				User:   c.String("user"),
-				Host:   c.String("host"),
-				Port:   c.Int("port"),
-				Key:    kp.PrivatePEM,
-				PubKey: kp.PublicKey,
-			}
-			if err := sshutil.ValidateEntry(&entry); err != nil {
-				return err
-			}
-			entries = append(entries, entry)
-			if err := vault.Save(vf, password, entries); err != nil {
-				return fmt.Errorf("failed to save vault: %w", err)
-			}
-			fmt.Println("Key pair generated and saved in vault.")
-			return nil
-		},
-	}
-}
-
-func sendkeyCmd() *cli.Command {
-	return &cli.Command{
-		Name:  "sendkey",
-		Usage: "Send public key to remote server's authorized_keys",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "name", Required: true},
-			&cli.StringFlag{Name: "vault"},
-		},
-		Action: func(c *cli.Context) error {
-			vf := c.String("vault")
-			if vf == "" {
-				vf = DefaultVaultFile
-			}
-			password, err := readPassword("Vault password: ")
-			if err != nil {
-				return err
-			}
-			entries, err := vault.Load(vf, password)
-			if err != nil {
-				return err
-			}
-			entry := model.FindByName(entries, c.String("name"))
-			if entry == nil {
-				return errors.New("entry not found")
-			}
-			return sshutil.SendPublicKey(entry)
-		},
-	}
-}
+complete -o default -F _sshman_complete sshman
+`

@@ -3,59 +3,74 @@ package keygen
 import (
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 )
 
-func TestGenerateRSA(t *testing.T) {
-	kp, err := GenerateRSA(2048)
+func checkPair(t *testing.T, kp *KeyPair, typ string) {
+	t.Helper()
+	if !strings.HasPrefix(kp.PrivatePEM, "-----BEGIN OPENSSH PRIVATE KEY-----") {
+		t.Fatalf("private key should be OpenSSH PEM: %.40q", kp.PrivatePEM)
+	}
+	if !strings.HasPrefix(kp.PublicKey, typ+" ") || !strings.HasSuffix(kp.PublicKey, " c1\n") {
+		t.Fatalf("public key %q", kp.PublicKey)
+	}
+	signer, err := ssh.ParsePrivateKey([]byte(kp.PrivatePEM))
 	if err != nil {
-		t.Fatalf("GenerateRSA failed: %v", err)
+		t.Fatal(err)
 	}
-	if kp.PrivatePEM == "" {
-		t.Fatal("expected non-empty private key PEM")
-	}
-	if kp.PublicKey == "" {
-		t.Fatal("expected non-empty public key")
-	}
-	if !strings.HasPrefix(kp.PrivatePEM, "-----BEGIN RSA PRIVATE KEY-----") {
-		t.Fatal("private key PEM has wrong header")
-	}
-	if !strings.HasPrefix(kp.PublicKey, "ssh-rsa ") {
-		t.Fatal("public key should start with ssh-rsa")
-	}
-}
-
-func TestGenerateRSARejectsSmallBits(t *testing.T) {
-	_, err := GenerateRSA(1024)
-	if err == nil {
-		t.Fatal("expected error for 1024-bit key")
-	}
-}
-
-func TestGenerateRSA4096(t *testing.T) {
-	kp, err := GenerateRSA(4096)
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(kp.PublicKey))
 	if err != nil {
-		t.Fatalf("GenerateRSA 4096 failed: %v", err)
+		t.Fatal(err)
 	}
-	if kp.PrivatePEM == "" {
-		t.Fatal("expected non-empty private key PEM")
+	if string(pub.Marshal()) != string(signer.PublicKey().Marshal()) {
+		t.Fatal("public key does not match private key")
+	}
+	if kp.Fingerprint != ssh.FingerprintSHA256(pub) {
+		t.Fatal("fingerprint mismatch")
 	}
 }
 
 func TestGenerateEd25519(t *testing.T) {
-	kp, err := GenerateEd25519()
+	kp, err := GenerateEd25519("c1")
 	if err != nil {
-		t.Fatalf("GenerateEd25519 failed: %v", err)
+		t.Fatal(err)
 	}
-	if kp.PrivatePEM == "" {
-		t.Fatal("expected non-empty private key PEM")
+	checkPair(t, kp, "ssh-ed25519")
+}
+
+func TestGenerateRSA(t *testing.T) {
+	if testing.Short() {
+		t.Skip("slow")
 	}
-	if kp.PublicKey == "" {
-		t.Fatal("expected non-empty public key")
+	kp, err := GenerateRSA(DefaultRSABits, "c1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasPrefix(kp.PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
-		t.Fatal("private key PEM has wrong header")
+	checkPair(t, kp, "ssh-rsa")
+}
+
+// Q-10: only 3072 and 4096 are generated; huge sizes are refused up front.
+func TestGenerateRSARejectsOtherSizes(t *testing.T) {
+	for _, bits := range []int{0, 1024, 2048, 3000, 8192, 65536} {
+		if _, err := GenerateRSA(bits, ""); err == nil {
+			t.Errorf("%d bits accepted", bits)
+		}
 	}
-	if !strings.HasPrefix(kp.PublicKey, "ssh-ed25519 ") {
-		t.Fatal("public key should start with ssh-ed25519")
+}
+
+func BenchmarkGenerateEd25519(b *testing.B) {
+	for b.Loop() {
+		if _, err := GenerateEd25519(""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGenerateRSA3072(b *testing.B) {
+	for b.Loop() {
+		if _, err := GenerateRSA(3072, ""); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

@@ -17,17 +17,18 @@ We welcome all types of contributions – whether it's fixing bugs, improving do
 
 2. **Set up your development environment**
 
-   * Install **Go 1.20+**
+   * Install **Go 1.26+** (the toolchain pinned in `go.mod` is downloaded automatically)
+   * Install the OpenSSH client and server if you want to run the integration tests
    * Build the app:
 
      ```bash
-     go build
+     go build -o sshman .
      ```
 
 3. **Run the app locally**:
 
    ```bash
-   go run main.go
+   go run . --help
    ```
 
 ---
@@ -54,7 +55,30 @@ Here are some ways you can contribute:
 
 * Keep functions focused and readable.
 
-* Write clear commit messages (e.g., `feat: add import/export command`).
+* Write clear commit messages (e.g., `feat: add import/export command`), and reference audit or finding IDs (e.g. `S-03`) when you fix one.
+
+## ✅ Checks to run before opening a PR
+
+CI runs all of these on Linux, macOS and Windows:
+
+```bash
+gofmt -l .                          # must print nothing
+go vet ./...
+go test ./...
+go test -race ./...
+go test -tags integration ./sshutil/   # starts a throwaway sshd on 127.0.0.1 with synthetic keys
+go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
+Fuzz targets (`go test ./vault/ -fuzz FuzzDecryptVault`, and the `Fuzz*` functions in `sshutil`) run nightly.
+
+## 🔐 Security-sensitive code
+
+* Changes to `vault/`, `sshutil/` or the password handling in `app/` need a regression test for the threat they address.
+* Never log, print or write private keys, passwords or passphrases. Never add flags or environment variables that carry secrets.
+* Never commit real keys, real vaults or binaries. Test vaults in `testdata/` must contain synthetic data only.
+* See `docs/ARCHITECTURE.md` and `docs/remediation/DECISIONS.md` before changing the vault format or the ssh invocation.
 
 ---
 

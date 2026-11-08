@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, review, remediation]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - name: race detector
+        if: runner.os != 'Windows'
+        run: go test -race -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go mod tidy
+        run: go mod tidy -diff
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./... && go run honnef.co/go/tools/cmd/staticcheck@latest -tags integration ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: no committed executables (S-09)
+        run: |
+          bad=$(git ls-files -z | xargs -0 file --mime-type | grep -E 'application/(x-executable|x-pie-executable|x-sharedlib|x-mach-binary|x-dosexec|vnd.microsoft.portable-executable)' || true)
+          if [ -n "$bad" ]; then echo "$bad"; exit 1; fi
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: install OpenSSH server
+        run: sudo apt-get update -q && sudo apt-get install -y -q openssh-server openssh-client
+      - name: sshd integration tests (localhost, synthetic keys)
+        run: go test -count=1 -tags integration -run Integration -v ./sshutil/
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, freebsd/amd64]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: build ${{ matrix.target }}
+        run: |
+          GOOS=${TARGET%/*} GOARCH=${TARGET#*/} CGO_ENABLED=0 go build -trimpath -o /dev/null .
+        env:
+          TARGET: ${{ matrix.target }}

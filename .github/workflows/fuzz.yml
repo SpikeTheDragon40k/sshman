@@ -1,0 +1,38 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - vault FuzzDecryptVault
+          - sshutil FuzzValidateAndArgs
+          - sshutil FuzzCanonicalAuthorizedKey
+          - sshutil FuzzParsePrivateKey
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: fuzz ${{ matrix.target }}
+        run: |
+          set -- $TARGET
+          go test ./$1/ -run '^$' -fuzz "^$2\$" -fuzztime 10m
+        env:
+          TARGET: ${{ matrix.target }}
+      - name: keep crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: "**/testdata/fuzz/**"
