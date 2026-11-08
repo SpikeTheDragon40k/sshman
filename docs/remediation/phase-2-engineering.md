@@ -77,7 +77,7 @@ Only Linux is claimed as fully verified. macOS is expected to work (same code pa
 ## 6. Acceptance gate
 
 - All HIGH and MEDIUM engineering findings resolved: **yes**.
-- LOW/INFO resolved or dispositioned: **yes** (Q-13 BLOCKED for `connect` only, Q-14 FALSE_POSITIVE).
+- LOW/INFO resolved or dispositioned: **yes** (Q-14 FALSE_POSITIVE; Q-13 was BLOCKED for `connect` at this gate and has since been fixed, see STATUS T-03).
 - Build, vet, test and security checks pass: **yes** (gosec not re-run; see §4).
 - SSH connection and key deployment work: **yes** (Linux lab and CI integration).
 - No known vault data-loss regression: **yes**.
