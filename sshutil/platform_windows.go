@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -55,9 +56,14 @@ func listenAgent(string) (net.Listener, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	l := &pipeListener{name: name, sa: sa}
+	closeEv, err := windows.CreateEvent(nil, 1, 0, nil) // manual reset: stays signalled
+	if err != nil {
+		return nil, "", err
+	}
+	l := &pipeListener{name: name, sa: sa, closeEv: closeEv, pending: windows.InvalidHandle}
 	h, err := l.newInstance(true)
 	if err != nil {
+		_ = windows.CloseHandle(closeEv)
 		return nil, "", fmt.Errorf("create agent pipe: %w", err)
 	}
 	l.pending = h
@@ -95,8 +101,9 @@ func currentUserSID() (*windows.SID, error) {
 type pipeListener struct {
 	name    string
 	sa      *windows.SecurityAttributes
+	closeEv windows.Handle // signalled by Close; never reset
 	mu      sync.Mutex
-	pending windows.Handle
+	pending windows.Handle // first instance, not yet handed to Accept
 	closed  bool
 }
 
@@ -105,7 +112,7 @@ func (l *pipeListener) newInstance(first bool) (windows.Handle, error) {
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	flags := uint32(windows.PIPE_ACCESS_DUPLEX)
+	flags := uint32(windows.PIPE_ACCESS_DUPLEX | windows.FILE_FLAG_OVERLAPPED)
 	if first {
 		flags |= windows.FILE_FLAG_FIRST_PIPE_INSTANCE
 	}
@@ -113,8 +120,9 @@ func (l *pipeListener) newInstance(first bool) (windows.Handle, error) {
 	return windows.CreateNamedPipe(name, flags, mode, windows.PIPE_UNLIMITED_INSTANCES, 64<<10, 64<<10, 0, l.sa)
 }
 
-// Accept waits for a client on the pending instance and creates the next
-// instance before returning, so there is always one waiting.
+// Accept waits, with overlapped I/O, for a client on a pipe instance or for
+// Close. Waiting on the close event as well means Close can never miss a
+// blocked Accept.
 func (l *pipeListener) Accept() (net.Conn, error) {
 	l.mu.Lock()
 	if l.closed {
@@ -130,45 +138,53 @@ func (l *pipeListener) Accept() (net.Conn, error) {
 			return nil, err
 		}
 	}
-	err := windows.ConnectNamedPipe(h, nil)
-	if err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
+	ev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
 		_ = windows.CloseHandle(h)
 		return nil, err
 	}
-	l.mu.Lock()
-	closed := l.closed
-	l.mu.Unlock()
-	if closed {
+	defer windows.CloseHandle(ev)
+	ov := windows.Overlapped{HEvent: ev}
+	err = windows.ConnectNamedPipe(h, &ov)
+	switch {
+	case err == nil, errors.Is(err, windows.ERROR_PIPE_CONNECTED):
+	case errors.Is(err, windows.ERROR_IO_PENDING):
+		which, werr := windows.WaitForMultipleObjects([]windows.Handle{ev, l.closeEv}, false, windows.INFINITE)
+		if werr != nil || which != windows.WAIT_OBJECT_0 {
+			_ = windows.CancelIoEx(h, &ov)
+			var n uint32
+			_ = windows.GetOverlappedResult(h, &ov, &n, true)
+			_ = windows.CloseHandle(h)
+			if werr != nil {
+				return nil, werr
+			}
+			return nil, net.ErrClosed
+		}
+		var n uint32
+		if err := windows.GetOverlappedResult(h, &ov, &n, false); err != nil {
+			_ = windows.CloseHandle(h)
+			return nil, err
+		}
+	default:
 		_ = windows.CloseHandle(h)
-		return nil, net.ErrClosed
+		return nil, err
 	}
-	return &pipeConn{f: os.NewFile(uintptr(h), l.name), h: h}, nil
+	return newPipeConn(h)
 }
 
-// Close stops accepting. A blocked ConnectNamedPipe is released by
-// connecting to the pipe once ourselves.
+// Close stops accepting and releases any blocked Accept.
 func (l *pipeListener) Close() error {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.closed {
-		l.mu.Unlock()
 		return nil
 	}
 	l.closed = true
-	pending := l.pending
-	l.pending = windows.InvalidHandle
-	l.mu.Unlock()
-	if pending != windows.InvalidHandle {
-		// Never handed to Accept.
-		_ = windows.CloseHandle(pending)
-		return nil
+	if l.pending != windows.InvalidHandle {
+		_ = windows.CloseHandle(l.pending)
+		l.pending = windows.InvalidHandle
 	}
-	// An Accept may be blocked in ConnectNamedPipe; connect once to wake it.
-	if name, err := windows.UTF16PtrFromString(l.name); err == nil {
-		if h, err := windows.CreateFile(name, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, 0, 0); err == nil {
-			_ = windows.CloseHandle(h)
-		}
-	}
-	return nil
+	return windows.SetEvent(l.closeEv)
 }
 
 func (l *pipeListener) Addr() net.Addr { return pipeAddr(l.name) }
@@ -178,18 +194,85 @@ type pipeAddr string
 func (a pipeAddr) Network() string { return "pipe" }
 func (a pipeAddr) String() string  { return string(a) }
 
+// pipeConn does overlapped reads and writes on an overlapped pipe handle
+// (os.NewFile would treat it as blocking). One read and one write may be in
+// progress at a time, which is how the agent protocol uses it.
 type pipeConn struct {
-	f *os.File
-	h windows.Handle
+	h         windows.Handle
+	rev, wev  windows.Handle
+	closeOnce sync.Once
 }
 
-func (c *pipeConn) Read(b []byte) (int, error)  { return c.f.Read(b) }
-func (c *pipeConn) Write(b []byte) (int, error) { return c.f.Write(b) }
-func (c *pipeConn) Close() error {
-	_ = windows.FlushFileBuffers(c.h)
-	_ = windows.DisconnectNamedPipe(c.h)
-	return c.f.Close()
+func newPipeConn(h windows.Handle) (*pipeConn, error) {
+	rev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		_ = windows.CloseHandle(h)
+		return nil, err
+	}
+	wev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		_ = windows.CloseHandle(rev)
+		_ = windows.CloseHandle(h)
+		return nil, err
+	}
+	return &pipeConn{h: h, rev: rev, wev: wev}, nil
 }
+
+func pipeErr(err error) error {
+	if errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED) ||
+		errors.Is(err, windows.ERROR_NO_DATA) || errors.Is(err, windows.ERROR_OPERATION_ABORTED) {
+		return io.EOF
+	}
+	return err
+}
+
+func (c *pipeConn) Read(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	var n uint32
+	ov := windows.Overlapped{HEvent: c.rev}
+	err := windows.ReadFile(c.h, b, &n, &ov)
+	if errors.Is(err, windows.ERROR_IO_PENDING) {
+		err = windows.GetOverlappedResult(c.h, &ov, &n, true)
+	}
+	if err != nil {
+		return int(n), pipeErr(err)
+	}
+	if n == 0 {
+		return 0, io.EOF
+	}
+	return int(n), nil
+}
+
+func (c *pipeConn) Write(b []byte) (int, error) {
+	written := 0
+	for written < len(b) {
+		var n uint32
+		ov := windows.Overlapped{HEvent: c.wev}
+		err := windows.WriteFile(c.h, b[written:], &n, &ov)
+		if errors.Is(err, windows.ERROR_IO_PENDING) {
+			err = windows.GetOverlappedResult(c.h, &ov, &n, true)
+		}
+		written += int(n)
+		if err != nil {
+			return written, pipeErr(err)
+		}
+	}
+	return written, nil
+}
+
+func (c *pipeConn) Close() error {
+	c.closeOnce.Do(func() {
+		_ = windows.CancelIoEx(c.h, nil)
+		_ = windows.DisconnectNamedPipe(c.h)
+		_ = windows.CloseHandle(c.h)
+		_ = windows.CloseHandle(c.rev)
+		_ = windows.CloseHandle(c.wev)
+	})
+	return nil
+}
+
 func (c *pipeConn) LocalAddr() net.Addr                { return pipeAddr("") }
 func (c *pipeConn) RemoteAddr() net.Addr               { return pipeAddr("") }
 func (c *pipeConn) SetDeadline(t time.Time) error      { return nil }

@@ -86,8 +86,8 @@ func TestWindowsInsecureACLRefused(t *testing.T) {
 			t.Errorf("%s: want ErrUnsafe, got %v", name, err)
 		}
 	}
-	// A deny entry for others is fine; Administrators and SYSTEM are trusted.
-	setDACL(t, path, "D:P(D;;FA;;;WD)(A;;FA;;;"+user.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
+	// A deny entry (for Guests) is fine; Administrators and SYSTEM are trusted.
+	setDACL(t, path, "D:P(D;;FA;;;BG)(A;;FA;;;"+user.String()+")(A;;FA;;;SY)(A;;FA;;;BA)")
 	if _, err := Load(path, pw("pw-win-acl")); err != nil {
 		t.Fatalf("owner/SYSTEM/Administrators ACL refused: %v", err)
 	}

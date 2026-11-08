@@ -61,3 +61,10 @@ Branch `remediation` (from `review`). The security audit (kept on the `review` b
 | F-04 | Public key export (`pubkey`, `show`) | 4 | FIXED | b25cddc | `TestListJSONHasNoSecrets` |
 | F-05 | Shell completion | 4 | FIXED | 9d3b382 | `TestListKeyOlderThanAndCompletion`; real binary lists commands |
 | F-06..F-12 | Remaining candidates | 4 | Backlog (not implemented) | — | Ranked in phase-4-development.md |
+
+## Follow-up (test-plan gaps closed after the first merge)
+
+| ID | Item | Status | Commit | Test evidence |
+|---|---|---|---|---|
+| T-01 | Malformed inputs from the audit test plan §3 | FIXED | c3af13e | `TestHugeVaultFileRefusedWithoutReading` (1 GiB sparse file refused from its size; new pre-read size check), `TestHostileDecryptedPayloads` (100k-deep nesting, wrong types, truncated/non-JSON, huge numbers, invalid UTF-8), `TestManyEntries` (100k entries), `TestUnusualPasswordBytes` (NUL, non-UTF-8, 1 KiB), `TestCheckPasswordPolicyMalformed`, `TestValidateMalformedHostsAndUsers` (homoglyphs, zero-width, control characters, overlong) |
+| T-02 | ProxyJump with `ForwardAgent yes` on the jump host (R-3) | FIXED (tested) | d88b814 | `TestIntegrationProxyJump`; mutation check |

@@ -50,7 +50,7 @@
 |---|---|
 | Remote host requests agent forwarding | Refused by `ForwardAgent=no` on the command line, even with `ForwardAgent yes` in config (tested) |
 | User config `IdentityAgent /elsewhere` / `IdentityFile` | Overridden by our explicit options (`TestIntegrationUserIdentityAgentIgnored`) |
-| ProxyJump host with `ForwardAgent yes` | The jump ssh doesn't inherit our `-o` options, but it never sees the vault socket either: `SSH_AUTH_SOCK` is left as the user's own (D-08). Reasoned; no jump-host lab test (residual R-3) |
+| ProxyJump host with `ForwardAgent yes` | The jump ssh doesn't inherit our `-o` options and never sees the vault agent, because `SSH_AUTH_SOCK` is left as the user's own (D-08). **Tested** (`TestIntegrationProxyJump`): with no jump identity the hop fails to authenticate; with its own key the session works, the destination has no agent, and the vault key is used only for the destination. Mutation check: exporting the session socket as `SSH_AUTH_SOCK` makes the test fail |
 | Another local process connects to the session socket | 0700 directory, 0600 socket; even the same uid gets List/Sign only (`TestReadOnlyAgent`). It can still request signatures during the session (accepted, audit D-9) |
 | Option injection via user/host/port | Leading `-` rejected, `--` placed before the destination, fuzzed (`FuzzValidateAndArgs`, 45 s, no failures) |
 | Injection into the remote `sendkey` command | The key line is re-marshalled; comment characters are allowlisted; fuzzing asserts a safe character set (`FuzzCanonicalAuthorizedKey`); the script is run under `sh` in a test |
@@ -98,7 +98,7 @@ CI run 42459809140: 11/11 jobs green (ubuntu, macOS, Windows tests; lint; integr
 |---|---|---|
 | R-1 | `Entry.Key` is a Go `string`; no `mlock` | ACCEPTED_RISK (D-07); attacker needs same uid/root |
 | R-2 | Same-uid process can request signatures from the session agent while `connect` runs | ACCEPTED_RISK (audit D-9); limited to List/Sign, socket 0700/0600, lifetime = session |
-| R-3 | ProxyJump/ProxyCommand behaviour reasoned, not lab-tested | Low; vault socket not exposed through env. Add a jump-host integration test (backlog) |
+| R-3 | ProxyJump/ProxyCommand behaviour | **Resolved**: covered by `TestIntegrationProxyJump` (d88b814). ProxyCommand runs a user-chosen command that also doesn't receive the vault socket; it is not separately tested |
 | R-4 | Windows: no ACL check; `connect` unsupported | ACCEPTED_RISK / BLOCKED (D-09, D-10) |
 | R-5 | GO-2026-5932 module advisory (unreachable) | ACCEPTED_RISK (D-11) |
 | R-6 | Release provenance untested until the first tag is pushed | The workflow is syntax-checked and its steps mirror the CI build; it creates drafts only |

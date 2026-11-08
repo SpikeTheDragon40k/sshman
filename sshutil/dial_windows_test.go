@@ -4,7 +4,6 @@ package sshutil
 
 import (
 	"net"
-	"os"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -17,9 +16,9 @@ func dialAgent(opt string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, 0, 0)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
 	if err != nil {
 		return nil, err
 	}
-	return &pipeConn{f: os.NewFile(uintptr(h), name), h: h}, nil
+	return newPipeConn(h)
 }
