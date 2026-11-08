@@ -1,21 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/sshman-org/sshman/app"
 	"github.com/sshman-org/sshman/cmd"
-	"github.com/urfave/cli/v2"
 )
 
+// version is set at build time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
-	app := &cli.App{
-		Name:     "sshman",
-		Usage:    "Manage SSH keys securely",
-		Commands: cmd.Commands(),
-	}
-	if err := app.Run(os.Args); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
+	app.HardenProcess()
+	os.Exit(cmd.Run(cmd.DefaultEnv(), os.Args, version))
 }
