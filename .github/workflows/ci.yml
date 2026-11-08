@@ -23,10 +23,10 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...
-      - run: go test -count=1 ./...
+      - run: go test -count=1 -timeout 5m ./...
       - name: race detector
         if: runner.os != 'Windows'
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 -timeout 5m ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
       - name: install OpenSSH server
         run: sudo apt-get update -q && sudo apt-get install -y -q openssh-server openssh-client
       - name: sshd integration tests (localhost, synthetic keys)
-        run: go test -count=1 -tags integration -run Integration -v ./sshutil/
+        run: go test -count=1 -timeout 5m -tags integration -run Integration -v ./sshutil/
 
   cross-build:
     runs-on: ubuntu-latest

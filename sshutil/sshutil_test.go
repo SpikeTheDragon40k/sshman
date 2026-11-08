@@ -312,3 +312,36 @@ func TestSendKeyArgs(t *testing.T) {
 		t.Fatalf("bad arg layout: %v", args)
 	}
 }
+
+func TestValidateMalformedHostsAndUsers(t *testing.T) {
+	for _, h := range []string{
+		"exаmple.com",            // Cyrillic 'а' homoglyph
+		"еxample.com",            // Cyrillic 'е'
+		"example.com\u200b",      // zero-width space
+		strings.Repeat("a", 300), // over length
+		strings.Repeat("a.", 128) + "com",
+		"host\x00evil",
+		"host\nProxyCommand=x",
+		"[fe80::1%eth0;rm]",
+		"%eth0",
+		"..",
+		".",
+	} {
+		if ValidateHost(h) == nil {
+			t.Errorf("host %q accepted", h)
+		}
+	}
+	for _, u := range []string{"rооt" /* Cyrillic o */, "user\x00", strings.Repeat("u", 65), "u\tv"} {
+		if ValidateUser(u) == nil {
+			t.Errorf("user %q accepted", u)
+		}
+	}
+	for _, p := range []int{-1, 65536, -65535} {
+		if ValidatePort(p) == nil {
+			t.Errorf("port %d accepted", p)
+		}
+	}
+	if ValidatePort(0) != nil || ValidatePort(65535) != nil {
+		t.Error("boundary ports rejected")
+	}
+}

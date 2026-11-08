@@ -179,3 +179,6 @@ func syncDir(dir string) error {
 	}
 	return nil
 }
+
+// restrictFile is a no-op on Unix: files are created 0600 and fchmod'ed.
+func restrictFile(*os.File) error { return nil }

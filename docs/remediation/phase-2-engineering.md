@@ -18,7 +18,7 @@
 | Q-10 | LOW | RSA {3072, 4096}, default 3072; ed25519 default | `TestGenerateRSARejectsOtherSizes` |
 | Q-11 | LOW | `passwd`, `restore`, `rename`, `show`, `pubkey`, automatic `.bak` | `TestPasswd`, `TestRestoreCommand`, `TestGenKeyAndRename` |
 | Q-12 | INFO | Errors → stderr with `Error:` prefix; data-only stdout; `--json`; exit codes 0/1/2/3/4/5/6 + ssh passthrough; distinct "not a valid sshman vault" vs "incorrect password or corrupted vault" | `TestWrongPasswordExitCode`, `TestListJSONHasNoSecrets` |
-| Q-13 | LOW | Windows: build, vet and unit suite pass on CI, including `LockFileEx` concurrency. `connect` with a vault key is **BLOCKED** (named-pipe agent; D-10) and fails closed with a clear message | CI `test (windows-latest)` |
+| Q-13 | LOW | Windows: build, vet and unit suite pass on CI, including `LockFileEx` concurrency. `connect` was BLOCKED at the first merge; it is now implemented with a named-pipe agent and tested on Windows CI (see STATUS T-03, DECISIONS D-10) | CI `test (windows-latest)` |
 | Q-14 | INFO | G204/G304 FALSE_POSITIVE (re-reviewed); G104 fixed | — |
 | Q-15 | LOW | `Create` fails if any file exists; directory fsync; every close/remove error on the write path handled | `TestCreateRefusesExisting`, `TestInterruptedWriteKeepsOldVault` |
 | Q-16 | INFO | README rewritten from the implementation; CONTRIBUTING and SECURITY updated | Docs commit |
@@ -66,9 +66,9 @@ No new third-party dependencies. `golang.org/x/sys` moved from indirect to direc
 | Capability | Linux | macOS | Windows |
 |---|---|---|---|
 | Vault create/read/update, locking | tested | tested (CI) | tested (CI) |
-| Permission/symlink/owner checks | tested | tested (CI unix tests) | not applicable (ACLs not checked, D-09) |
+| Permission/symlink/owner checks | tested | tested (CI unix tests) | owner + ACL checks tested in CI (D-09) |
 | Password prompt from terminal | tested (pty) | not interactively tested; same `/dev/tty` code path | `CONIN$` code path, not interactively tested |
-| `connect` with vault key | tested (sshd) | builds, unit-tested args; no sshd lab | **BLOCKED** (D-10) |
+| `connect` with vault key | tested (sshd and in-process server) | tested in CI (in-process server) | tested in CI with ssh.exe (named pipe, D-10) |
 | `sendkey` (password) | tested (sshd) | not lab-tested | not lab-tested |
 | Socket path length | — | handled (<100 bytes, `/tmp` fallback) | n/a |
 
@@ -77,7 +77,7 @@ Only Linux is claimed as fully verified. macOS is expected to work (same code pa
 ## 6. Acceptance gate
 
 - All HIGH and MEDIUM engineering findings resolved: **yes**.
-- LOW/INFO resolved or dispositioned: **yes** (Q-13 BLOCKED for `connect` only, Q-14 FALSE_POSITIVE).
+- LOW/INFO resolved or dispositioned: **yes** (Q-14 FALSE_POSITIVE; Q-13 was BLOCKED for `connect` at this gate and has since been fixed, see STATUS T-03).
 - Build, vet, test and security checks pass: **yes** (gosec not re-run; see §4).
 - SSH connection and key deployment work: **yes** (Linux lab and CI integration).
 - No known vault data-loss regression: **yes**.

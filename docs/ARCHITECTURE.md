@@ -40,4 +40,4 @@ main ──► cmd ──► app ──┬─► vault    encrypted file format,
 * **New entry fields:** add `omitempty`/`omitzero` fields to `model.Entry`; older vaults decode unchanged. Expose them in `app.EntryView` only if they contain no secrets.
 * **New vault format version:** add a branch in `vault.decryptVault`, keep reading every older version, bump `currentVersion`, and add a fixture produced by the previous release.
 * **New UI (TUI/GUI):** build on `app` with a custom `Prompter`; do not call `vault` or `sshutil` directly.
-* **Windows `connect`:** implement `listenAgent` in `sshutil/platform_windows.go` with a named pipe restricted to the current user's SID, and add a Windows integration job before enabling it.
+* **Agent transport:** `sshutil/platform_unix.go` serves the session agent on a 0600 unix socket, `sshutil/platform_windows.go` on an owner-only named pipe with overlapped I/O. Both return the `IdentityAgent` value; `TestSessionAgentEndpoint` and `TestConnectInprocServer` cover each platform.

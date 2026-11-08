@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -448,15 +447,7 @@ func TestDoctor(t *testing.T) {
 	if len(h.prompt.asked) != 2 {
 		t.Fatalf("doctor must not prompt for the password: %v", h.prompt.asked)
 	}
-	if runtime.GOOS == "windows" {
-		// POSIX modes are not checked on Windows (DECISIONS D-09); doctor
-		// must not claim the file is private.
-		if strings.Contains(h.out.String(), "private") || !strings.Contains(h.out.String(), "ACLs are not checked") {
-			t.Fatalf("doctor overstates Windows checks: %s", h.out.String())
-		}
-		return
-	}
-	_ = os.Chmod(h.vault, 0o644)
+	makeInsecure(t, h.vault)
 	if code := h.run("doctor"); code == 0 || !strings.Contains(h.out.String(), "FAIL") {
 		t.Fatalf("insecure perms not reported: %s", h.out.String())
 	}

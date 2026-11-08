@@ -172,6 +172,10 @@ func readVaultFile(path string) ([]byte, error) {
 	if err := checkOpenFile(f, path); err != nil {
 		return nil, err
 	}
+	// Refuse oversized files before reading anything into memory.
+	if fi, err := f.Stat(); err == nil && fi.Size() > maxVaultSize {
+		return nil, fmt.Errorf("%w: file larger than %d bytes", ErrFormat, maxVaultSize)
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxVaultSize+1))
 	if err != nil {
 		return nil, err
@@ -223,6 +227,10 @@ func save(path string, password []byte, entries []model.Entry, params Params) (e
 		}
 	}()
 	if err = tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	// On Windows, replace the inherited ACL with an owner-only one.
+	if err = restrictFile(tmp); err != nil {
 		return err
 	}
 	if _, err = tmp.Write(data); err != nil {
@@ -302,6 +310,10 @@ func copyFile(src, dst string) error {
 	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := restrictFile(out); err != nil {
+		_ = out.Close()
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {

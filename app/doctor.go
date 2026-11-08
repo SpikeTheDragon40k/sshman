@@ -29,8 +29,7 @@ func (a *App) Doctor() error {
 		bad("%v", err)
 	default:
 		if runtime.GOOS == "windows" {
-			ok("file is a regular file, not a symlink (%d bytes)", size)
-			warn("file ownership and ACLs are not checked on Windows; keep the vault in your user profile")
+			ok("file is owned by you, its ACL grants no other account access, and it is not a symlink (%d bytes)", size)
 		} else {
 			ok("file is private, owned by you and not a symlink (%d bytes)", size)
 		}
@@ -59,9 +58,6 @@ func (a *App) Doctor() error {
 	} else {
 		out, _ := exec.Command(p, "-V").CombinedOutput()
 		ok("%s (%s)", p, strings.TrimSpace(string(out)))
-	}
-	if runtime.GOOS == "windows" {
-		warn("connect with vault keys is not supported on Windows yet (sendkey and vault management are)")
 	}
 	if os.Getenv("SSH_AUTH_SOCK") != "" {
 		ok("your own ssh-agent is untouched; sshman uses a private per-session agent")

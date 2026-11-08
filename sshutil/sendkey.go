@@ -2,6 +2,7 @@ package sshutil
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -87,7 +88,7 @@ func SendPublicKey(e *model.Entry, via *model.Entry, opts Options) error {
 		return err
 	}
 	if via == nil {
-		return runSSH(opts.sshPath(), sendKeyArgs(e, keyLine, &opts), &opts)
+		return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), sendKeyArgs(e, keyLine, &opts)...), &opts)
 	}
 	if via.Key == "" {
 		return fmt.Errorf("entry %q has no private key to log in with", via.Name)
@@ -97,5 +98,5 @@ func SendPublicKey(e *model.Entry, via *model.Entry, opts Options) error {
 		return err
 	}
 	defer s.close()
-	return runSSH(opts.sshPath(), sendKeyViaArgs(e, keyLine, s.sock, s.pubFile, &opts), &opts)
+	return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), sendKeyViaArgs(e, keyLine, s.sock, s.pubFile, &opts)...), &opts)
 }

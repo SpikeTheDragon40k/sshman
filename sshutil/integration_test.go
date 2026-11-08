@@ -18,6 +18,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,7 +37,28 @@ type lab struct {
 	wrapper    string
 	hostKey    string
 	sshd       *exec.Cmd
+	logBuf     *syncBuffer
 }
+
+// syncBuffer is a goroutine-safe buffer for the sshd log.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func (l *lab) log() string { return l.logBuf.String() }
 
 func findSSHD() string {
 	if p, err := exec.LookPath("sshd"); err == nil {
@@ -108,8 +130,9 @@ LogLevel VERBOSE
 SetEnv HOME=%s
 `, l.port, l.hostKey, dir, l.authKeys, home))
 	l.sshd = exec.Command(sshd, "-D", "-e", "-f", cfg)
-	var logBuf bytes.Buffer
-	l.sshd.Stderr = &logBuf
+	logBuf := &syncBuffer{}
+	l.logBuf = logBuf
+	l.sshd.Stderr = logBuf
 	if err := l.sshd.Start(); err != nil {
 		t.Fatalf("start sshd: %v", err)
 	}
@@ -302,4 +325,98 @@ func TestIntegrationSessionCleanup(t *testing.T) {
 	if len(after) > len(before) {
 		t.Fatalf("session directory left behind: %v", after)
 	}
+}
+
+// R-3 / D-08: with ProxyJump, the jump hop runs as a separate ssh process
+// that does not receive sshman's -o options. The vault key must still never
+// be offered to (or forwarded through) the jump host, even with
+// "ForwardAgent yes" configured for both hops; it is used only for the
+// final destination, through the tunnel.
+func TestIntegrationProxyJump(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "") // no user agent: only sshman's could help
+	l := newLab(t, "")
+	l.trustHostKey()
+	vaultEntry := l.entry(t, "target", true) // vault key authorised on the server
+
+	// The jump hop gets its own key from the user's ssh config.
+	jumpKey := filepath.Join(l.dir, "jumpkey")
+	run(t, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "jump", "-f", jumpKey)
+	jumpCfg := func(jumpIdentity string) string {
+		return fmt.Sprintf(`Host jump
+  HostName 127.0.0.1
+  Port %d
+  User %s
+%s  ForwardAgent yes
+Host target
+  HostName 127.0.0.1
+  Port %d
+  ProxyJump jump
+  ForwardAgent yes
+Host *
+  UserKnownHostsFile %s
+  GlobalKnownHostsFile /dev/null
+  BatchMode yes
+`, l.port, l.user, jumpIdentity, l.port, l.knownHosts)
+	}
+	// No identity for the jump at all: an agent is the only thing that
+	// could authenticate it, so this fails if sshman's agent leaks to it.
+	l.setClientConfig(jumpCfg(""))
+	vaultEntry.Host, vaultEntry.Port = "target", 0
+
+	// 1. Jump key not authorised: the hop must fail, proving the vault key
+	//    is not available to the jump ssh process.
+	if out, errs, err := l.connect(vaultEntry, Options{}, "echo", "SHOULD_NOT_RUN"); err == nil || strings.Contains(out, "SHOULD_NOT_RUN") {
+		t.Fatalf("jump hop authenticated without its own key (vault key exposed to ProxyJump?)\nstdout=%s\nstderr=%s", out, errs)
+	}
+
+	// 2. Authorise the jump key: the session works end to end and the
+	//    destination still has no forwarded agent.
+	pub, err := os.ReadFile(jumpKey + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(l.authKeys, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.Write(pub)
+	f.Close()
+	l.setClientConfig(jumpCfg("  IdentityFile " + jumpKey + "\n  IdentitiesOnly yes\n"))
+	out, errs, err := l.connect(vaultEntry, Options{}, `echo "JUMP_OK SOCK=[$SSH_AUTH_SOCK]"; ssh-add -l; echo "RC=$?"`)
+	if err != nil || !strings.Contains(out, "JUMP_OK") {
+		t.Fatalf("connect via ProxyJump failed: %v\nstdout=%s\nstderr=%s", err, out, errs)
+	}
+	if !strings.Contains(out, "SOCK=[]") || strings.Contains(out, "RC=0") {
+		t.Fatalf("destination reached an agent through the jump:\n%s", out)
+	}
+	// The destination must have been authenticated with the vault key, the
+	// jump with its own key.
+	logb := l.log()
+	vfp := ssh.FingerprintSHA256(mustPub(t, vaultEntry.Key))
+	jfp := fingerprintFile(t, jumpKey+".pub")
+	if !strings.Contains(logb, "Accepted publickey for "+l.user) || !strings.Contains(logb, vfp) || !strings.Contains(logb, jfp) {
+		t.Fatalf("expected both keys in the server log (vault %s, jump %s):\n%s", vfp, jfp, logb)
+	}
+}
+
+func mustPub(t *testing.T, privPEM string) ssh.PublicKey {
+	t.Helper()
+	s, err := ssh.ParsePrivateKey([]byte(privPEM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.PublicKey()
+}
+
+func fingerprintFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ssh.FingerprintSHA256(pub)
 }
