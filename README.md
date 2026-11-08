@@ -37,9 +37,9 @@ gh attestation verify sshman_v*_linux_amd64 --repo sshman-org/sshman
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Vault management, `genkey`, `sendkey` | ✅ tested | ✅ unit-tested in CI | ✅ unit-tested in CI |
-| `connect` / `sendkey --via` (vault key via agent) | ✅ tested against sshd | expected to work (same code path; no sshd lab) | ❌ not yet: Win32-OpenSSH needs a named-pipe agent |
-| Vault permission checks | ✅ | ✅ | ACLs not checked |
+| Vault management, `genkey`, `sendkey` | ✅ tested | ✅ tested in CI | ✅ tested in CI |
+| `connect` / `sendkey --via` (vault key via agent) | ✅ tested against sshd and in CI | ✅ tested in CI (in-process SSH server) | ✅ tested in CI with the built-in `ssh.exe` (named-pipe agent) |
+| Vault permission checks | ✅ mode / owner / symlink | ✅ mode / owner / symlink | ✅ owner and ACL (new files get an owner-only ACL) |
 
 ---
 
@@ -125,7 +125,7 @@ sshman delete --name web --yes
 
 * is a symlink,
 * is owned by another user,
-* is readable or writable by others (fix with `chmod 600`), or
+* is readable or writable by others (fix with `chmod 600`; on Windows, an ACL granting access to another account), or
 * sits in a world-writable directory without the sticky bit.
 
 A group-writable directory gets a warning.
@@ -179,7 +179,7 @@ See [SECURITY.md](SECURITY.md) and the remediation reports in [`docs/remediation
 | `incorrect password or corrupted vault` | Check the password; if the file is damaged, run `sshman restore` |
 | `Host key verification failed` | Unknown host: connect once interactively and confirm the fingerprint, or use `--accept-new-host-key`. Changed host key: investigate before touching `known_hosts` |
 | `a terminal is required to enter the password` | Run from an interactive terminal; sshman never reads passwords from pipes |
-| `connect … not supported on Windows yet` | Use WSL, or run `ssh` with a key file for now |
+| Windows: `… grants access to BUILTIN\Users` (or another account) | Run the `icacls` command shown in the error, or move the vault into your user profile |
 | Anything else | `sshman doctor` |
 
 ---
@@ -206,7 +206,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ARCHITECTURE.md](docs/ARCHITECT
 ## Roadmap
 
 Implemented: tags and favorites, rotation helpers, JSON output, `passwd`, `restore`, `doctor`, shell completion.
-Next: import hosts from `~/.ssh/config`, per-entry host-key pinning, encrypted export, Windows `connect`.
+Next: import hosts from `~/.ssh/config`, per-entry host-key pinning, encrypted export.
 Evaluated and deferred: TUI, GUI, FIDO2 keys, OS keychain. See [docs/remediation/phase-4-development.md](docs/remediation/phase-4-development.md).
 
 ## Contribution

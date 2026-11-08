@@ -99,7 +99,7 @@ CI run 42459809140: 11/11 jobs green (ubuntu, macOS, Windows tests; lint; integr
 | R-1 | `Entry.Key` is a Go `string`; no `mlock` | ACCEPTED_RISK (D-07); attacker needs same uid/root |
 | R-2 | Same-uid process can request signatures from the session agent while `connect` runs | ACCEPTED_RISK (audit D-9); limited to List/Sign, socket 0700/0600, lifetime = session |
 | R-3 | ProxyJump/ProxyCommand behaviour | **Resolved**: covered by `TestIntegrationProxyJump` (d88b814). ProxyCommand runs a user-chosen command that also doesn't receive the vault socket; it is not separately tested |
-| R-4 | Windows: no ACL check; `connect` unsupported | ACCEPTED_RISK / BLOCKED (D-09, D-10) |
+| R-4 | Windows: ACL check and `connect` | **Resolved** after the first merge: owner/ACL checks and owner-only DACLs on new files (D-09); named-pipe agent for `connect` (D-10). Windows directory permissions are still not checked |
 | R-5 | GO-2026-5932 module advisory (unreachable) | ACCEPTED_RISK (D-11) |
 | R-6 | Release provenance untested until the first tag is pushed | The workflow is syntax-checked and its steps mirror the CI build; it creates drafts only |
 

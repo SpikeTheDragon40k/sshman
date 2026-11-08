@@ -51,11 +51,21 @@ Applies to `init` and `passwd` only. Existing vaults with shorter passwords stil
 - **Rejected:** `-F none`, which breaks aliases, jump hosts and corporate configs (audit D-3); forcing `ClearAllForwardings=yes` on `connect`, which breaks deliberate port forwarding (set for `sendkey` only); a per-entry agent-forwarding opt-in, which would need a separately reviewed authorization design. Forwarding is simply off.
 - **Host keys:** the user's `StrictHostKeyChecking` policy applies, and OpenSSH's own prompt shows the fingerprint. `--accept-new-host-key` is an explicit opt-in. Per-entry host-key pinning is backlog (F-09).
 
-## D-09 Windows file permissions
-POSIX mode checks are skipped on Windows. ACL inspection (owner-only DACL) is not implemented. The vault is created in the per-user AppData directory. Its inherited ACL normally grants access to the user, SYSTEM and Administrators, not to other standard users, but sshman does not verify this. Locking uses `LockFileEx`, verified on Windows CI by the concurrency tests. **Accepted risk** until ACL checks are added (backlog F-12).
+## D-09 Windows file permissions (updated)
+- **New files:** vault, backup and lock files get a protected DACL that grants full control to the current user and SYSTEM only, replacing the inherited ACL. It is set by path (`SetNamedSecurityInfo`), because handles from `os.OpenFile` lack `WRITE_DAC`.
+- **Loading** refuses a vault whose owner is not you, SYSTEM or Administrators, or whose DACL has an allow entry granting read, write, delete or permission changes to any other account. Deny entries and inherit-only entries are ignored. The error includes an `icacls` command to fix it.
+- **Directory checks** (who can replace files in the vault's folder) are not implemented on Windows; the vault's own ACL and the random, exclusive temp names still apply.
+- **Compatibility:** a vault created by an older sshman in a folder that grants access to `Users` (for example under `C:\`) is now refused until fixed with `icacls` or moved into the user profile. Vaults under the user profile pass unchanged.
+- **Tested** on Windows CI: owner-only DACLs on new files; Everyone/Users/Authenticated Users access refused; Guests deny entries and SYSTEM/Administrators accepted.
 
-## D-10 Windows `connect`: BLOCKED
-Win32-OpenSSH's `ssh.exe` reads the agent from a named pipe. Serving one securely (with a DACL restricted to the current user) needs either `go-winio` (a new dependency) or about 150 lines of `x/sys/windows` code. It also can't be validated in this environment, only on a Windows runner with interactive OpenSSH. Rather than ship an untested agent transport on the credential path, `connect` and `sendkey --via` return a clear error on Windows. Vault management, `genkey`, `sendkey` (without `--via`), `copy` and `doctor` work, and the unit suite passes on Windows CI. The README doesn't claim Windows `connect` support.
+## D-10 Windows `connect`: named-pipe agent (was BLOCKED; now implemented)
+- The read-only session agent is served on `\\.\pipe\sshman-agent-<128-bit random hex>`.
+- **Access:** a protected DACL grants access to the current user and SYSTEM only. The first instance uses `FILE_FLAG_FIRST_PIPE_INSTANCE`, so the name can't be squatted, and `PIPE_REJECT_REMOTE_CLIENTS` is set.
+- **I/O:** overlapped. Accept waits on both the connect event and a manual-reset close event, so `Close` can never miss a blocked Accept; an earlier synchronous version had exactly that race. Reads and writes use `GetOverlappedResult`, because `os.NewFile` treats handles as blocking.
+- **ssh.exe options:** pointed at the pipe with `IdentityAgent`. Option paths use forward slashes and are double-quoted (Windows user names may contain spaces); values containing `%`, `$`, `"` or a leading `~` are refused.
+- **No new dependency:** only `golang.org/x/sys/windows`.
+- **Tested:** `TestConnectInprocServer` (real `ssh.exe` → in-process x/crypto/ssh server, hostile `ForwardAgent yes` config, no forwarding request, wrong key refused) and `TestSessionAgentEndpoint` (List works, Add refused, pipe gone after close) pass on `windows-latest` CI (run 42464601399).
+- **Not tested on Windows:** a real Windows sshd, and password prompts in cmd/PowerShell.
 
 ## D-11 GO-2026-5932 (x/crypto/openpgp)
 The module-level advisory is fixed only in a pseudo-version (`v0.58.1-0.2026…`). sshman doesn't import `openpgp`, and govulncheck reports it as not called. Pinning a pseudo-version for an unreachable package was rejected; Dependabot will propose the next tagged release.
