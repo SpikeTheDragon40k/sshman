@@ -1,12 +1,17 @@
 name: Release
 
-# Runs when a maintainer pushes a version tag. It builds reproducible
-# binaries, writes SHA256SUMS, attests build provenance (SLSA, via GitHub
-# artifact attestations) and creates a DRAFT release: a human must review
-# and publish it.
+# Run manually (Actions > Release > Run workflow) for an existing version
+# tag. Pushing a tag does not start it, to save Actions minutes. It builds
+# reproducible binaries, writes SHA256SUMS, attests build provenance (SLSA,
+# via GitHub artifact attestations) and creates a DRAFT release: a human
+# must review and publish it.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to release (e.g. v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,15 +23,20 @@ jobs:
       contents: write      # create the draft release
       id-token: write      # sign provenance attestations
       attestations: write
+    env:
+      VERSION: ${{ inputs.tag }}
     steps:
+      - name: validate tag
+        run: |
+          echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$' || { echo "not a version tag: $VERSION"; exit 1; }
       - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ inputs.tag }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go test -count=1 ./...
       - name: build
-        env:
-          VERSION: ${{ github.ref_name }}
         run: |
           mkdir dist
           for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 freebsd/amd64; do
@@ -42,5 +52,4 @@ jobs:
       - name: create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
         run: gh release create "$VERSION" --draft --verify-tag --title "$VERSION" --generate-notes dist/*

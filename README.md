@@ -26,7 +26,7 @@ cd sshman
 go build -trimpath -o sshman .
 ```
 
-Release binaries are built by CI from tagged commits. Each release ships a `SHA256SUMS` file and a GitHub build-provenance attestation:
+Release binaries are built by CI on demand from a version tag (Actions → Release → Run workflow). Each release ships a `SHA256SUMS` file and a GitHub build-provenance attestation:
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
