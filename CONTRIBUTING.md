@@ -59,7 +59,7 @@ Here are some ways you can contribute:
 
 ## ✅ Checks to run before opening a PR
 
-CI runs all of these on Linux, macOS and Windows:
+The CI workflow runs all of these on Linux, macOS and Windows. It starts only manually (Actions → CI → Run workflow), so run it on your branch before asking for a merge:
 
 ```bash
 gofmt -l .                          # must print nothing
@@ -71,7 +71,7 @@ go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
-Fuzz targets (`go test ./vault/ -fuzz FuzzDecryptVault`, and the `Fuzz*` functions in `sshutil`) run nightly.
+Fuzz targets (`go test ./vault/ -fuzz FuzzDecryptVault`, and the `Fuzz*` functions in `sshutil`) run in the manual Fuzz workflow.
 
 ## 🔐 Security-sensitive code
 

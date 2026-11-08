@@ -1,9 +1,9 @@
 name: CI
 
+# Manual only (Actions > CI > Run workflow) to keep automatic Actions usage
+# at zero. Run it on a branch before merging.
 on:
-  push:
-    branches: [main, review, remediation]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
