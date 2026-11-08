@@ -434,3 +434,36 @@ func TestRestoreCommand(t *testing.T) {
 		t.Fatal(h.errb.String())
 	}
 }
+
+func TestDoctor(t *testing.T) {
+	h := newHarness(t)
+	if code := h.run("doctor"); code == 0 || !strings.Contains(h.out.String(), "does not exist") {
+		t.Fatalf("missing vault: %d %s", code, h.out.String())
+	}
+	h.init()
+	if code := h.run("doctor"); !strings.Contains(h.out.String(), "format v2") {
+		t.Fatalf("doctor: %d %s %s", code, h.out.String(), h.errb.String())
+	}
+	if len(h.prompt.asked) != 2 {
+		t.Fatalf("doctor must not prompt for the password: %v", h.prompt.asked)
+	}
+	_ = os.Chmod(h.vault, 0o644)
+	if code := h.run("doctor"); code == 0 || !strings.Contains(h.out.String(), "FAIL") {
+		t.Fatalf("insecure perms not reported: %s", h.out.String())
+	}
+}
+
+func TestListKeyOlderThanAndCompletion(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.pw(goodPW)
+	h.run("genkey", "--name", "fresh", "--user", "u", "--host", "h")
+	h.pw(goodPW)
+	h.run("list", "--key-older-than", "30")
+	if strings.Contains(h.out.String(), "fresh") {
+		t.Fatalf("fresh key listed as old: %s", h.out.String())
+	}
+	if code := h.run("completion", "bash"); code != 0 || !strings.Contains(h.out.String(), "complete -o default") {
+		t.Fatal("completion")
+	}
+}

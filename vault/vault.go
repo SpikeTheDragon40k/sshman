@@ -314,3 +314,24 @@ func copyFile(src, dst string) error {
 	}
 	return out.Close()
 }
+
+// Inspect reports a vault's format and KDF parameters from its header
+// without decrypting it (no password needed). The header is only verified
+// when the vault is decrypted, so this is informational.
+func Inspect(path string) (Info, int64, error) {
+	data, err := readVaultFile(path)
+	if err != nil {
+		return Info{}, 0, err
+	}
+	if len(data) >= len(magic) && string(data[:len(magic)]) == magic {
+		h, err := parseV2(data)
+		if err != nil {
+			return Info{}, int64(len(data)), err
+		}
+		return h.info, int64(len(data)), nil
+	}
+	if len(data) < legacyMinLen+gcmTagLen {
+		return Info{}, int64(len(data)), fmt.Errorf("%w: too short", ErrFormat)
+	}
+	return Info{Version: legacyVersion, Params: legacyParams}, int64(len(data)), nil
+}

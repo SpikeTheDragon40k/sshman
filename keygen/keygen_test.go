@@ -58,3 +58,19 @@ func TestGenerateRSARejectsOtherSizes(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkGenerateEd25519(b *testing.B) {
+	for b.Loop() {
+		if _, err := GenerateEd25519(""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGenerateRSA3072(b *testing.B) {
+	for b.Loop() {
+		if _, err := GenerateRSA(3072, ""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

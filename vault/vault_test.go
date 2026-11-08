@@ -394,3 +394,19 @@ func TestRecommendedParams(t *testing.T) {
 		t.Fatal("legacy params should be outdated")
 	}
 }
+
+func TestInspect(t *testing.T) {
+	path := newVaultPath(t)
+	if err := Save(path, pw("pw-inspect"), sampleEntries()); err != nil {
+		t.Fatal(err)
+	}
+	info, size, err := Inspect(path)
+	if err != nil || info.Version != formatV2 || info.Params != DefaultParams || size == 0 {
+		t.Fatalf("%+v %d %v", info, size, err)
+	}
+	data, _ := os.ReadFile("testdata/legacy-v1.vssh")
+	_ = os.WriteFile(path, data, 0o600)
+	if info, _, err := Inspect(path); err != nil || info.Version != legacyVersion {
+		t.Fatalf("legacy inspect %+v %v", info, err)
+	}
+}

@@ -682,6 +682,9 @@ type ListInput struct {
 	Tag       string
 	Favorites bool
 	JSON      bool
+	// KeyOlderThan keeps entries whose key is older than this many days
+	// (or has no recorded creation date), for rotation reviews.
+	KeyOlderThan int
 }
 
 // List prints entries, optionally filtered. Only data goes to stdout.
@@ -700,6 +703,9 @@ func (a *App) List(in ListInput) error {
 			continue
 		}
 		if in.Favorites && !e.Favorite {
+			continue
+		}
+		if in.KeyOlderThan > 0 && !e.KeyCreatedAt.IsZero() && a.now().Sub(e.KeyCreatedAt) < time.Duration(in.KeyOlderThan)*24*time.Hour {
 			continue
 		}
 		out = append(out, View(e))
@@ -722,7 +728,7 @@ func (a *App) List(in ListInput) error {
 		return enc.Encode(out)
 	}
 	if len(out) == 0 {
-		if in.Query != "" || in.Tag != "" || in.Favorites {
+		if in.Query != "" || in.Tag != "" || in.Favorites || in.KeyOlderThan > 0 {
 			a.notef("No matching entries found.")
 		} else {
 			a.notef("No entries in vault.")

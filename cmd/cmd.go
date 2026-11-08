@@ -174,11 +174,12 @@ func Commands(env *Env) []*cli.Command {
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "tag", Usage: "only entries with this tag"},
 				&cli.BoolFlag{Name: "favorites", Usage: "only favorites"},
+				&cli.IntFlag{Name: "key-older-than", Usage: "only entries whose key is older than `DAYS` (or of unknown age), for rotation reviews"},
 				&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
 				vaultFlag(),
 			},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.List(app.ListInput{Tag: c.String("tag"), Favorites: c.Bool("favorites"), JSON: c.Bool("json")})
+				return a.List(app.ListInput{Tag: c.String("tag"), Favorites: c.Bool("favorites"), JSON: c.Bool("json"), KeyOlderThan: c.Int("key-older-than")})
 			}),
 		},
 		{
@@ -311,6 +312,31 @@ func Commands(env *Env) []*cli.Command {
 			}),
 		},
 		{
+			Name:      "completion",
+			Usage:     "print a shell completion script (bash or zsh)",
+			UsageText: "source <(sshman completion bash)",
+			ArgsUsage: "bash|zsh",
+			Action: func(c *cli.Context) error {
+				switch c.Args().First() {
+				case "bash":
+					fmt.Fprint(env.Stdout, bashCompletion)
+				case "zsh":
+					fmt.Fprint(env.Stdout, "autoload -U +X bashcompinit && bashcompinit\n"+bashCompletion)
+				default:
+					return fmt.Errorf("usage: sshman completion bash|zsh")
+				}
+				return nil
+			},
+		},
+		{
+			Name:  "doctor",
+			Usage: "check the vault location, permissions, format and ssh client (no password needed)",
+			Flags: []cli.Flag{vaultFlag()},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Doctor()
+			}),
+		},
+		{
 			Name:  "restore",
 			Usage: "replace a damaged vault with its automatic backup",
 			Flags: []cli.Flag{&cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "do not ask for confirmation"}, vaultFlag()},
@@ -338,3 +364,15 @@ func Run(env *Env, args []string, version string) int {
 	fmt.Fprintln(env.Stderr, "Error:", err)
 	return app.ExitCode(err)
 }
+
+// bashCompletion completes commands and flags via urfave/cli's
+// --generate-bash-completion. It never lists entry names, which would
+// require the vault password.
+const bashCompletion = `_sshman_complete() {
+  local cur words
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  words=$("${COMP_WORDS[0]}" "${COMP_WORDS[@]:1:$COMP_CWORD-1}" --generate-bash-completion 2>/dev/null)
+  COMPREPLY=($(compgen -W "$words" -- "$cur"))
+}
+complete -o default -F _sshman_complete sshman
+`
