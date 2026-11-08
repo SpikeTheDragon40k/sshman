@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SpikeTheDragon40k/sshman/cmd"
+	"github.com/sshman-org/sshman/cmd"
 	"github.com/urfave/cli/v2"
 )
 

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/SpikeTheDragon40k/sshman/model"
+	"github.com/sshman-org/sshman/model"
 	"golang.org/x/crypto/argon2"
 )
 

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/SpikeTheDragon40k/sshman/model"
+	"github.com/sshman-org/sshman/model"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -86,7 +86,7 @@ func Connect(entry *model.Entry) error {
 		}
 	}()
 
-	args := append(sshHardeningArgs())
+	args := sshHardeningArgs()
 	if entry.Port > 0 && entry.Port != 22 {
 		args = append(args, "-p", fmt.Sprintf("%d", entry.Port))
 	}
@@ -122,7 +122,7 @@ func SendPublicKey(entry *model.Entry) error {
 	sshCmd.Stdout = os.Stdout
 	sshCmd.Stderr = os.Stderr
 	sshCmd.Stdin = os.Stdin
-	sshCmd.Env = append(os.Environ())
+	sshCmd.Env = os.Environ()
 	fmt.Printf("Sending public key to %s...\n", remote)
 	return sshCmd.Run()
 }

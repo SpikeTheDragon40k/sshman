@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SpikeTheDragon40k/sshman/model"
+	"github.com/sshman-org/sshman/model"
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
