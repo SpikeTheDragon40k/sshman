@@ -1,8 +1,7 @@
 name: Fuzz
 
+# Manual only, to keep automatic Actions usage at zero.
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
