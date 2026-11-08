@@ -28,7 +28,12 @@ func (a *App) Doctor() error {
 	case err != nil:
 		bad("%v", err)
 	default:
-		ok("file is private, owned by you and not a symlink (%d bytes)", size)
+		if runtime.GOOS == "windows" {
+			ok("file is a regular file, not a symlink (%d bytes)", size)
+			warn("file ownership and ACLs are not checked on Windows; keep the vault in your user profile")
+		} else {
+			ok("file is private, owned by you and not a symlink (%d bytes)", size)
+		}
 		p := info.Params
 		if info.Outdated() {
 			warn("format v%d, Argon2id t=%d m=%dMiB p=%d; run 'sshman passwd' to re-encrypt with current parameters", info.Version, p.Time, p.MemoryKiB/1024, p.Threads)
