@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sshman — encrypted SSH key &amp; connection manager</title>
+<meta name="description" content="sshman keeps SSH connection profiles and their private keys in one password-encrypted vault, and connects with OpenSSH without ever writing a key to disk.">
+<link rel="icon" type="image/png" href="logo.png">
+<meta property="og:title" content="sshman">
+<meta property="og:description" content="Your SSH keys, in one encrypted vault. Never on disk.">
+<meta property="og:image" content="https://spikethedragon40k.github.io/sshman/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121212; --panel:#1b1b1b; --panel2:#161616; --line:#2a2a2a;
+  --green:#12a36a; --green-dim:#0f6b48; --green-glow:rgba(18,163,106,.35);
+  --text:#d6d6d6; --muted:#8a8a8a; --warn:#e0b84c;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:15px;line-height:1.65}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;
+  background:repeating-linear-gradient(to bottom,rgba(255,255,255,.018) 0 1px,transparent 1px 3px)}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+nav{position:sticky;top:0;z-index:40;background:rgba(18,18,18,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:58px}
+nav .brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:800}
+nav .brand img{width:30px;height:30px;border-radius:7px}
+nav .links{margin-left:auto;display:flex;gap:18px;font-size:13px}
+nav .links a{color:var(--muted)} nav .links a:hover{color:var(--green);text-decoration:none}
+@media(max-width:720px){nav .links a:not(.gh){display:none}}
+
+.hero{padding:72px 0 48px;display:grid;grid-template-columns:1fr 1.15fr;gap:48px;align-items:center}
+@media(max-width:860px){.hero{grid-template-columns:1fr;padding-top:40px}}
+.hero img.logo{width:96px;height:96px;border-radius:20px;box-shadow:0 0 40px var(--green-glow)}
+h1{font-size:clamp(34px,6vw,54px);margin:18px 0 6px;color:#fff;letter-spacing:-1px}
+h1 .p{color:var(--green)}
+.tag{font-size:18px;color:var(--green);margin:0 0 14px}
+.lead{color:var(--muted);margin:0 0 26px}
+.btns{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-block;padding:10px 18px;border:1px solid var(--green);border-radius:6px;font-weight:600;font-size:14px}
+.btn.primary{background:var(--green);color:#06140d}
+.btn:hover{text-decoration:none;box-shadow:0 0 18px var(--green-glow)}
+
+.term{background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.term .bar{display:flex;gap:7px;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+.term .bar i{width:11px;height:11px;border-radius:50%;background:#333}
+.term .bar i:first-child{background:var(--green-dim)}
+.term .bar span{margin-left:auto;font-size:12px;color:var(--muted)}
+.term pre{margin:0;padding:18px;min-height:300px;font-size:13px;white-space:pre-wrap;word-break:break-word}
+.c{color:var(--green)} .m{color:var(--muted)} .w{color:#fff}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--green);vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+section{padding:56px 0;border-top:1px solid var(--line)}
+h2{font-size:24px;color:#fff;margin:0 0 8px}
+h2::before{content:"## ";color:var(--green)}
+.sub{color:var(--muted);margin:0 0 30px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px;transition:border-color .2s}
+.card:hover{border-color:var(--green-dim)}
+.card h3{margin:0 0 8px;font-size:15px;color:var(--green)}
+.card p{margin:0;color:var(--muted);font-size:13.5px}
+
+.code{position:relative;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--green);border-radius:6px;padding:16px 18px;margin:0 0 18px;overflow-x:auto;font-size:13.5px}
+.code pre{margin:0}
+.copy{position:absolute;top:8px;right:8px;background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:4px;font:12px var(--mono);padding:3px 9px;cursor:pointer}
+.copy:hover{color:var(--green);border-color:var(--green-dim)}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--panel);color:var(--green);font-weight:600}
+tr:last-child td{border-bottom:0}
+td code,p code,li code{color:#fff;background:#222;padding:1px 6px;border-radius:4px}
+
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:760px){.cols{grid-template-columns:1fr}}
+ul.chk{list-style:none;padding:0;margin:0}
+ul.chk li{padding:6px 0 6px 26px;position:relative;color:var(--text);font-size:14px}
+ul.chk li::before{content:"[✓]";position:absolute;left:0;color:var(--green);font-size:12px;top:8px}
+ul.x li::before{content:"[✗]";color:var(--warn)}
+.note{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:12px 16px;font-size:13.5px;margin-top:22px}
+footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--muted);font-size:13px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#"><img src="logo.png" alt="">sshman</a>
+  <div class="links">
+    <a href="#features">features</a><a href="#install">install</a><a href="#commands">commands</a><a href="#security">security</a>
+    <a class="gh" href="https://github.com/sshman-org/sshman">github ↗</a>
+  </div>
+</div></nav>
+
+<header class="wrap hero">
+  <div>
+    <img class="logo" src="logo.png" alt="sshman logo">
+    <h1><span class="p">&gt;_</span> sshman</h1>
+    <p class="tag">Your SSH keys, in one encrypted vault. Never on disk.</p>
+    <p class="lead">A small command-line SSH key and connection manager. Profiles <b>and</b> private keys live in a single password-encrypted file; <code>connect</code> hands the key to OpenSSH through a private, read-only agent. No daemon, no cloud, no telemetry.</p>
+    <div class="btns">
+      <a class="btn primary" href="#install">$ get started</a>
+      <a class="btn" href="https://github.com/sshman-org/sshman">view source</a>
+      <a class="btn" href="https://github.com/sshman-org/sshman/releases">releases</a>
+    </div>
+  </div>
+  <div class="term" aria-label="Example sshman session">
+    <div class="bar"><i></i><i></i><i></i><span>~ bash</span></div>
+    <pre id="demo"></pre>
+  </div>
+</header>
+
+<section id="features"><div class="wrap">
+  <h2>features</h2>
+  <p class="sub">Everything you need to manage SSH access, and nothing that phones home.</p>
+  <div class="grid">
+    <div class="card"><h3>AES-256-GCM vault</h3><p>Key derived with Argon2id (t=3, 64 MiB, p=4). Versioned, fully authenticated header — tampering is detected.</p></div>
+    <div class="card"><h3>Keys never touch disk</h3><p><code>connect</code> loads the key into a per-session, read-only agent used only by your <code>ssh</code> child. Forwarding is always off.</p></div>
+    <div class="card"><h3>Safe writes</h3><p>Locked, atomic, fsynced saves with an automatic encrypted backup and one-command <code>restore</code>.</p></div>
+    <div class="card"><h3>Generate or import</h3><p>ed25519 by default, RSA 3072/4096 on request. Import existing keys — passphrase-protected ones included.</p></div>
+    <div class="card"><h3>sendkey &amp; rotation</h3><p>Install a public key on password-only servers, or rotate keys with <code>--via</code> using the old one.</p></div>
+    <div class="card"><h3>Script friendly</h3><p>Tags, favorites, notes, search, <code>--json</code> output with no secrets, explicit exit codes, shell completion.</p></div>
+  </div>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <h2>install</h2>
+  <p class="sub">Requires Go 1.26+ to build and the OpenSSH client (<code>ssh</code>) in your PATH.</p>
+  <div class="code"><button class="copy">copy</button><pre>git clone https://github.com/sshman-org/sshman.git
+cd sshman
+go build -trimpath -o sshman .</pre></div>
+  <p class="sub" style="margin-bottom:12px">Or grab a prebuilt binary from <a href="https://github.com/sshman-org/sshman/releases">releases</a> and verify it:</p>
+  <div class="code"><button class="copy">copy</button><pre>sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify sshman_v*_linux_amd64 --repo sshman-org/sshman</pre></div>
+
+  <h2 style="margin-top:40px">quick start</h2>
+  <p class="sub">Four commands from zero to logged in.</p>
+  <div class="code"><button class="copy">copy</button><pre><span class="c">sshman init</span>                                   <span class="m"># create the vault (password ≥ 12 chars)</span>
+<span class="c">sshman genkey</span> --name web --user deploy --host web.example.com
+<span class="c">sshman sendkey</span> --name web                     <span class="m"># ssh asks for the account password once</span>
+<span class="c">sshman connect</span> --name web                     <span class="m"># log in with the vault key</span></pre></div>
+</div></section>
+
+<section id="commands"><div class="wrap">
+  <h2>commands</h2>
+  <p class="sub">Every command accepts <code>--vault PATH</code>.</p>
+  <div class="tbl"><table>
+    <tr><th>command</th><th>purpose</th></tr>
+    <tr><td><code>init</code></td><td>Create an empty vault</td></tr>
+    <tr><td><code>add</code></td><td>Add an entry with an existing key (<code>--key FILE|-</code>)</td></tr>
+    <tr><td><code>genkey</code></td><td>Generate a key pair into a new entry</td></tr>
+    <tr><td><code>list</code> / <code>search</code></td><td>Browse by tag, favorite, key age; <code>--json</code></td></tr>
+    <tr><td><code>show</code> / <code>pubkey</code></td><td>Details, fingerprint, public key — never the private key</td></tr>
+    <tr><td><code>copy</code></td><td>Copy <code>ssh user@host -p port</code> to the clipboard</td></tr>
+    <tr><td><code>update</code> / <code>rename</code> / <code>delete</code></td><td>Edit entries</td></tr>
+    <tr><td><code>connect</code></td><td>SSH session (or remote command) with the vault key</td></tr>
+    <tr><td><code>sendkey</code></td><td>Append the public key to remote <code>authorized_keys</code> (<code>--via</code> for rotation)</td></tr>
+    <tr><td><code>passwd</code> / <code>restore</code></td><td>Change password, recover from the automatic backup</td></tr>
+    <tr><td><code>doctor</code></td><td>Check location, permissions, format and ssh — no password needed</td></tr>
+    <tr><td><code>completion</code></td><td>bash / zsh completion script</td></tr>
+  </table></div>
+</div></section>
+
+<section id="security"><div class="wrap">
+  <h2>security model</h2>
+  <p class="sub">Clear about what it protects — and what it can't.</p>
+  <div class="cols">
+    <div class="card"><h3>protects</h3><ul class="chk">
+      <li>Private keys and host list at rest — one 64 MiB Argon2id run per guess</li>
+      <li>Vault integrity: any modified byte is rejected</li>
+      <li>Refuses symlinked, foreign-owned or world-readable vaults</li>
+      <li>Agent answers only <em>list</em> and <em>sign</em>; never forwarded</li>
+      <li>Your own <code>SSH_AUTH_SOCK</code> agent stays untouched</li>
+      <li>Follows <b>your</b> OpenSSH host-key policy; changed keys always refused</li>
+    </ul></div>
+    <div class="card"><h3>does not protect against</h3><ul class="chk x">
+      <li>Malware running as your user or as root</li>
+      <li>Keyloggers capturing the vault password</li>
+      <li>Old copies of the vault kept by backup / sync tools</li>
+      <li>A weak password chosen despite the policy</li>
+    </ul></div>
+  </div>
+  <div class="note">⚠ Never lose your vault password. There is no recovery without it.</div>
+
+  <h2 style="margin-top:44px">platforms</h2>
+  <p class="sub">Tested in CI on all three.</p>
+  <div class="tbl"><table>
+    <tr><th></th><th>Linux</th><th>macOS</th><th>Windows</th></tr>
+    <tr><td>vault, genkey, sendkey</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>connect via agent</td><td>✓ unix socket</td><td>✓ unix socket</td><td>✓ named pipe</td></tr>
+    <tr><td>permission checks</td><td>mode / owner / symlink</td><td>mode / owner / symlink</td><td>owner + ACL</td></tr>
+  </table></div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>sshman · open source · <a href="https://github.com/sshman-org/sshman/blob/main/LICENSE">license</a> · <a href="https://github.com/sshman-org/sshman/blob/main/SECURITY.md">report a vulnerability</a></span>
+  <span><a href="https://spikethedragon40k.github.io/">← spikethedragon40k.github.io</a></span>
+</div></footer>
+
+<script>
+(function(){
+  var lines=[
+    ['$ ','sshman init','c'],['','Vault password: ************','m'],['','✓ vault created at ~/.config/sshman/vault.vssh','w'],
+    ['$ ','sshman genkey --name web --user deploy --host web.example.com','c'],['','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… web','m'],
+    ['$ ','sshman list','c'],['','NAME   USER    HOST              PORT  TAGS','m'],['','web    deploy  web.example.com   22    prod','w'],
+    ['$ ','sshman connect --name web','c'],['','deploy@web:~$ ','w']
+  ];
+  var el=document.getElementById('demo'),out='',i=0;
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+  function render(extra){el.innerHTML=out+(extra||'')+'<span class="cursor"></span>'}
+  if(reduce){lines.forEach(function(l){out+='<span class="m">'+esc(l[0])+'</span><span class="'+l[2]+'">'+esc(l[1])+'</span>\n'});render();return}
+  function next(){
+    if(i>=lines.length){setTimeout(function(){out='';i=0;next()},4000);return}
+    var l=lines[i++],pre='<span class="m">'+esc(l[0])+'</span>';
+    if(!l[0]){out+=pre+'<span class="'+l[2]+'">'+esc(l[1])+'</span>'+(i<lines.length?'\n':'');render();setTimeout(next,350);return}
+    var k=0;(function type(){
+      if(k<=l[1].length){render(pre+'<span class="c">'+esc(l[1].slice(0,k++))+'</span>');setTimeout(type,28)}
+      else{out+=pre+'<span class="c">'+esc(l[1])+'</span>\n';setTimeout(next,300)}
+    })();
+  }
+  next();
+  document.querySelectorAll('.copy').forEach(function(b){b.onclick=function(){
+    var t=b.nextElementSibling.innerText;navigator.clipboard&&navigator.clipboard.writeText(t).then(function(){b.textContent='copied';setTimeout(function(){b.textContent='copy'},1200)})}});
+})();
+</script>
+</body>
+</html>

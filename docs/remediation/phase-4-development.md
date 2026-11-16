@@ -10,14 +10,14 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
 | F-04 | Public key export (`pubkey`, `show`) | 8 | 10 | 10 | 10 | 10 | 10 | **9.4** | Implemented |
 | F-05 | Shell completion (commands/flags) | 6 | 10 | 9 | 9 | 7 | 10 | **8.2** | Implemented |
 | F-02 | Key age metadata + rotation review filter | 7 | 8 | 9 | 9 | 10 | 10 | **8.3** | Implemented |
-| F-03 | Rotation helper `sendkey --via OLD` | 8 | 8 | 8 | 8 | 6 | 10 | **7.9** | Implemented (Unix) |
+| F-03 | Rotation helper `sendkey --via OLD` | 8 | 8 | 8 | 8 | 6 | 10 | **7.9** | Implemented (Linux, macOS, Windows) |
 | F-06 | Structured JSON output + exit codes | 7 | 9 | 9 | 9 | 10 | 10 | **8.6** | Implemented (Phase 3) |
 | F-07 | Encrypted export/import of selected entries | 7 | 6 | 6 | 6 | 10 | 10 | **6.9** | Backlog |
 | F-08 | Import from `~/.ssh/config` (hosts only, no keys) | 7 | 8 | 6 | 6 | 9 | 10 | **7.3** | Backlog (next) |
 | F-09 | Per-entry pinned host key (dedicated `UserKnownHostsFile`) | 6 | 9 | 6 | 7 | 8 | 10 | **7.3** | Backlog (next) |
-| F-10 | Windows named-pipe agent (`connect` on Windows) | 7 | 6 | 3 | 5 | 10 | 10 | **6.3** | Backlog; needs a Windows test lab (D-10) |
+| F-10 | Windows named-pipe agent (`connect` on Windows) | 7 | 6 | 3 | 5 | 10 | 10 | **6.3** | Implemented: named-pipe agent (D-10, Q-13; commits 7cbd42d, fbe68e1, 2a17117) |
 | F-11 | Hardware/FIDO2 keys | 7 | 9 | 2 | 4 | 5 | 10 | **6.3** | Rejected for now: x/crypto can't sign with `sk-*` keys in-process; would mean delegating to ssh-agent, changing the trust model |
-| F-12 | Windows ACL checks | 4 | 8 | 5 | 6 | 3 | 10 | **5.7** | Backlog |
+| F-12 | Windows ACL checks | 4 | 8 | 5 | 6 | 3 | 10 | **5.7** | Implemented: owner and ACL checks, owner-only ACL on new files (Q-13; commit 2a17117) |
 | F-13 | Interactive TUI | 6 | 7 | 3 | 4 | 7 | 9 | **5.8** | Deferred: would need a TUI framework (bubbletea), a large dependency |
 | F-14 | Desktop GUI | 5 | 6 | 1 | 2 | 5 | 8 | **4.4** | Deferred; the `app` layer keeps the logic UI-independent |
 | F-15 | OS keychain session cache | 6 | 4 | 4 | 3 | 4 | 10 | **4.8** | Rejected (adds a second secret store; needs explicit approval) |

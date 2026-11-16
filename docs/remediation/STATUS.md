@@ -60,7 +60,9 @@ Branch `remediation` (from `review`). The security audit (kept on the `review` b
 | F-03 | Key rotation helper `sendkey --via` | 4 | FIXED | 89bfe10 | `TestIntegrationSendKeyViaAndIdempotent` |
 | F-04 | Public key export (`pubkey`, `show`) | 4 | FIXED | b25cddc | `TestListJSONHasNoSecrets` |
 | F-05 | Shell completion | 4 | FIXED | 9d3b382 | `TestListKeyOlderThanAndCompletion`; real binary lists commands |
-| F-06..F-12 | Remaining candidates | 4 | Backlog (not implemented) | — | Ranked in phase-4-development.md |
+| F-10 | Windows named-pipe agent | 4 | FIXED | 7cbd42d, fbe68e1, 2a17117 | See Q-13 |
+| F-12 | Windows ACL checks | 4 | FIXED | 2a17117 | `TestWindowsInsecureACLRefused` on windows-latest; see Q-13 |
+| F-07, F-08, F-09 | Remaining candidates | 4 | Backlog (not implemented) | — | Ranked in phase-4-development.md |
 
 ## Follow-up (test-plan gaps closed after the first merge)
 
