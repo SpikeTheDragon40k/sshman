@@ -71,7 +71,7 @@ Applies to `init` and `passwd` only. Existing vaults with shorter passwords stil
 The module-level advisory is fixed only in a pseudo-version (`v0.58.1-0.2026…`). sshman doesn't import `openpgp`, and govulncheck reports it as not called. Pinning a pseudo-version for an unreachable package was rejected; Dependabot will propose the next tagged release.
 
 ## D-12 Backups
-The previous vault is hard-linked to `<vault>.bak` before each replacement (falling back to a copy), so recovery needs no extra I/O. `passwd` replaces the backup with the re-encrypted vault after verifying it, so no copy under the old password is left by sshman. Copies elsewhere, such as filesystem snapshots or cloud sync, are outside its control and documented. `restore` keeps the replaced file as `<vault>.corrupt`.
+The previous vault is hard-linked to `<vault>.bak` before each replacement (falling back to a copy), so recovery needs no extra I/O. `passwd` replaces the backup with the re-encrypted vault after verifying it, so no copy under the old password is left by sshman. Copies elsewhere, such as filesystem snapshots or cloud sync, are outside its control and documented. `restore` keeps the replaced file as `<vault>.corrupt-<UTC timestamp>` and never overwrites an earlier kept copy.
 
 ## D-13 RSA sizes
 New keys: 3072 (default) or 4096. Imports: ≥ 2048, since existing 2048-bit keys are still acceptable to NIST through 2030. DSA is rejected. Ed25519 stays the default. `genkey` now writes OpenSSH-format private keys, which `ssh-keygen` can read. Existing PKCS#1/PKCS#8 entries keep working.

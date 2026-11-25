@@ -1,10 +1,12 @@
-<img src="https://raw.githubusercontent.com/SpikeTheDragon40k/sshman/refs/heads/main/Sshmanlogo.png" alt="sshmanlogo" width="200"/>
+<img src="https://raw.githubusercontent.com/sshman-org/sshman/refs/heads/main/Sshmanlogo.png" alt="sshmanlogo" width="200"/>
 <br>
 
 # sshman
-[![Go Reference](https://pkg.go.dev/badge/github.com/sshman-org/sshman.svg)](https://pkg.go.dev/github.com/sshman-org/sshman)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sshman-org/sshman.svg)](https://pkg.go.dev/github.com/sshman-org/sshman) [![Website](https://img.shields.io/badge/website-sshman--org.github.io-blue)](https://sshman-org.github.io/sshman/)
 
 `sshman` is a small command-line SSH key and connection manager. It keeps your SSH connection profiles **and their private keys** in a single password-encrypted vault file, and connects with OpenSSH without ever writing a private key to disk.
+
+🌐 **Website:** <https://sshman-org.github.io/sshman/>
 
 * Vault encrypted with **AES-256-GCM**, key derived with **Argon2id** (t=3, 64 MiB, p=4), with an authenticated, versioned header
 * `connect` loads the key into a **private, read-only, per-session agent** that only your `ssh` child process uses; **agent forwarding is always disabled** for it

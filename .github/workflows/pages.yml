@@ -1,6 +1,6 @@
 name: Pages
 
-# Publishes site/ to https://spikethedragon40k.github.io/sshman/
+# Publishes site/ to https://sshman-org.github.io/sshman/
 # Manual only, like the other workflows (Actions > Pages > Run workflow).
 on:
   workflow_dispatch:

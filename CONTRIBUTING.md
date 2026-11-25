@@ -102,13 +102,13 @@ Fuzz targets (`go test ./vault/ -fuzz FuzzDecryptVault`, and the `Fuzz*` functio
    git push origin feat/my-feature
    ```
 
-4. Open a [Pull Request](https://github.com/SpikeTheDragon40k/sshman/blob/main/.github/PR_TEMPLATE/pull_request_template.md) on GitHub targeting the `main` branch.
+4. Open a [Pull Request](https://github.com/sshman-org/sshman/pulls) on GitHub targeting the `main` branch.
 
 ---
 
 ## 🧭 Guidelines
 
-* Check for open [issues](https://github.com/SpikeTheDragon40k/sshman/issues) before starting work.
+* Check for open [issues](https://github.com/sshman-org/sshman/issues) before starting work.
 * If you’re proposing a large feature, open an issue first to discuss it.
 * Add tests where relevant.
 * Respect the [Code of Conduct](./CODE_OF_CONDUCT.md).

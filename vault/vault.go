@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sshman-org/sshman/model"
 )
@@ -133,27 +134,34 @@ func ChangePassword(path string, oldPassword, newPassword []byte, params Params)
 
 // Restore replaces the vault with its backup after checking that the backup
 // decrypts with password. The current vault (even if unreadable) is kept as
-// "<vault>.corrupt".
-func Restore(path string, password []byte) (int, error) {
+// "<vault>.corrupt-<UTC timestamp>", whose path is returned (empty if there
+// was no vault). An earlier kept copy is never overwritten.
+func Restore(path string, password []byte) (n int, kept string, err error) {
 	l, err := acquire(path, true)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer l.release()
 	bak := BackupPath(path)
 	entries, _, err := load(bak, password)
 	if err != nil {
-		return 0, fmt.Errorf("backup %s: %w", bak, err)
+		return 0, "", fmt.Errorf("backup %s: %w", bak, err)
 	}
 	if _, err := os.Lstat(path); err == nil {
-		if err := os.Rename(path, path+".corrupt"); err != nil {
-			return 0, err
+		kept = path + ".corrupt-" + time.Now().UTC().Format("20060102T150405")
+		// The exclusive lock is held, so nothing can claim the name between
+		// this check and the rename.
+		if _, err := os.Lstat(kept); err == nil {
+			return 0, "", fmt.Errorf("%s already exists; try again in a second", kept)
+		}
+		if err := os.Rename(path, kept); err != nil {
+			return 0, "", err
 		}
 	}
 	if err := save(path, password, entries, DefaultParams); err != nil {
-		return 0, err
+		return 0, kept, err
 	}
-	return len(entries), nil
+	return len(entries), kept, nil
 }
 
 func readVaultFile(path string) ([]byte, error) {

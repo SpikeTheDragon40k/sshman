@@ -25,7 +25,7 @@ If you believe you’ve found a security vulnerability in **sshman**, please rep
 Preferred channels:
 
 - **GitHub Security Advisory (recommended):**  
-  1. Go to the [`sshman` repository](https://github.com/SpikeTheDragon40k/sshman).  
+  1. Go to the [`sshman` repository](https://github.com/sshman-org/sshman).  
   2. Click on the **Security** tab.  
   3. Click **“Report a vulnerability”** and fill out the form.  
 

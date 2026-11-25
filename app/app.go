@@ -325,11 +325,21 @@ func (a *App) Restore(yes bool) error {
 		return err
 	}
 	defer zero(pw)
-	n, err := vault.Restore(a.VaultPath, pw)
+	n, kept, err := vault.Restore(a.VaultPath, pw)
+	if errors.Is(err, vault.ErrAuth) {
+		if alt := legacyTrimmed(pw); alt != nil {
+			defer zero(alt)
+			n, kept, err = vault.Restore(a.VaultPath, alt)
+		}
+	}
 	if err != nil {
 		return err
 	}
-	a.notef("Restored %d entries from %s (the replaced file was kept as %s.corrupt)", n, bak, a.VaultPath)
+	if kept != "" {
+		a.notef("Restored %d entries from %s (the replaced file was kept as %s)", n, bak, kept)
+	} else {
+		a.notef("Restored %d entries from %s", n, bak)
+	}
 	return nil
 }
 
