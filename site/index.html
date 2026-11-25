@@ -162,6 +162,7 @@ gh attestation verify sshman_v*_linux_amd64 --repo sshman-org/sshman</pre></div>
     <tr><td><code>update</code> / <code>rename</code> / <code>delete</code></td><td>Edit entries</td></tr>
     <tr><td><code>connect</code></td><td>SSH session (or remote command) with the vault key</td></tr>
     <tr><td><code>sendkey</code></td><td>Append the public key to remote <code>authorized_keys</code> (<code>--via</code> to log in with another entry)</td></tr>
+    <tr><td><code>pin</code></td><td>Pin a server's host key in the vault; only that key is trusted for the entry</td></tr>
     <tr><td><code>rotate</code></td><td>Replace a key on its host and in the vault, then remove the old one</td></tr>
     <tr><td><code>passwd</code> / <code>restore</code></td><td>Change password, recover from the automatic backup</td></tr>
     <tr><td><code>doctor</code></td><td>Check location, permissions, format and ssh — no password needed</td></tr>

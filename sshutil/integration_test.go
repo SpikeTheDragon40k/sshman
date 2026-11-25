@@ -290,6 +290,45 @@ func TestIntegrationHostKeyPolicy(t *testing.T) {
 	}
 }
 
+// F-09: pin records the server's key; afterwards the pin alone decides, so a
+// different key is refused even with accept-new and no known_hosts at all.
+func TestIntegrationPinnedHostKey(t *testing.T) {
+	l := newLab(t, "")
+	e := l.entry(t, "a", true)
+	// Unlike l.wrapper, set no known_hosts files: sshman's must be the only ones.
+	wrapper := filepath.Join(l.dir, "ssh-pin-wrapper")
+	writeFile(t, wrapper, fmt.Sprintf("#!/bin/sh\nexec ssh -F %s -o BatchMode=yes \"$@\"\n", l.sshConfig))
+	_ = os.Chmod(wrapper, 0o755)
+	var out, errb bytes.Buffer
+	opts := Options{SSHPath: wrapper, Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb}
+
+	o := opts
+	o.AcceptNewHostKey = true
+	lines, err := PinHostKey(e, o)
+	if err != nil {
+		t.Fatalf("pin: %v %s", err, errb.String())
+	}
+	if got, want := HostKeyFingerprints(lines), fingerprintFile(t, l.hostKey+".pub"); len(got) != 1 || !strings.HasSuffix(got[0], want) {
+		t.Fatalf("pinned %v, want %s", got, want)
+	}
+
+	e.HostKeys = lines
+	o = opts
+	o.RemoteCommand = []string{"echo", "PINNED_OK"}
+	if err := Connect(e, o); err != nil || !strings.Contains(out.String(), "PINNED_OK") {
+		t.Fatalf("connect with pin: %v %s", err, errb.String())
+	}
+
+	other := filepath.Join(l.dir, "otherhost")
+	run(t, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", other)
+	pub, _ := os.ReadFile(other + ".pub")
+	e.HostKeys = []string{fmt.Sprintf("[127.0.0.1]:%d %s", l.port, strings.TrimSpace(string(pub)))}
+	o.AcceptNewHostKey = true
+	if err := Connect(e, o); err == nil {
+		t.Fatal("server key differing from the pin was accepted")
+	}
+}
+
 // Q-04/S-13: sendkey installs a second key using an already authorised vault
 // key, exactly once, and the new key then works.
 func TestIntegrationSendKeyViaAndIdempotent(t *testing.T) {

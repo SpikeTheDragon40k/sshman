@@ -83,6 +83,7 @@ cat id_ed25519 | sshman add --name db2 --user admin --host 10.0.0.6 --key -   # 
 | `connect --name N [-- CMD…]` | SSH session (or remote command) with the vault key |
 | `sendkey --name N [--via M]` | Append the public key to the remote `authorized_keys`, unless already present |
 | `rotate --name N [--type T] [--bits B]` | Replace the entry's key on its host and in the vault, then remove the old key from `authorized_keys` |
+| `pin --name N [--clear]` | Pin the server's host key in the vault; ssh then trusts only that key for the entry |
 | `passwd` | Change the vault password; re-encrypts with current parameters |
 | `restore` | Replace a damaged vault with its automatic backup |
 | `doctor` | Check vault location, permissions, format and ssh, without the password |
@@ -90,9 +91,20 @@ cat id_ed25519 | sshman add --name db2 --user admin --host 10.0.0.6 --key -   # 
 
 Every command accepts `--vault PATH`; `sshman --vault PATH <command>` also works.
 
+Commands that act on one existing entry also take the name as an argument: `sshman connect web` is `sshman connect --name web`. Flags go before the name, and a remote command goes after `--`: `sshman connect --accept-new-host-key web -- uptime`.
+
 ### Host keys
 
 `connect` and `sendkey` follow **your** OpenSSH host-key policy: by default OpenSSH asks you to confirm an unknown host's fingerprint. Pass `--accept-new-host-key` to record an unknown key without asking. A changed key is always refused.
+
+To make the vault the source of truth for a server's identity, pin its host key:
+
+```bash
+sshman pin web            # connects with an empty known_hosts: check the fingerprint ssh shows, then accept
+sshman show web           # Host key:     pinned ssh-ed25519 SHA256:…
+```
+
+From then on `connect`, `sendkey` and `rotate` for that entry trust **only** the pinned key: `~/.ssh/known_hosts` and the system file are ignored, and a different key is refused even with `--accept-new-host-key`. The pin travels with the encrypted vault. Run `pin` again to replace it (after a legitimate server key change), or `pin --clear` to go back to known_hosts. Changing the entry's host or port with `update` removes the pin.
 
 ### Key rotation
 

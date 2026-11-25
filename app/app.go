@@ -552,10 +552,15 @@ func (a *App) Update(name string, in UpdateInput) error {
 			return usage(err)
 		}
 	}
+	unpinned := false
 	err := a.update(func(entries []model.Entry) ([]model.Entry, error) {
 		e := model.FindByName(entries, name)
 		if e == nil {
 			return nil, fmt.Errorf("%w: %q", ErrEntryNotFound, name)
+		}
+		// A pin is only valid for the host and port it was recorded for.
+		if len(e.HostKeys) > 0 && (in.Host != nil && *in.Host != e.Host || in.Port != nil && *in.Port != e.Port) {
+			e.HostKeys, unpinned = nil, true
 		}
 		if in.User != nil {
 			e.User = *in.User
@@ -606,6 +611,9 @@ func (a *App) Update(name string, in UpdateInput) error {
 		return err
 	}
 	a.notef("Entry %q updated.", name)
+	if unpinned {
+		a.notef("The pinned host key was removed because the host or port changed; pin the new one with 'sshman pin %s'.", name)
+	}
 	return nil
 }
 
@@ -680,6 +688,8 @@ type EntryView struct {
 	CreatedAt     *time.Time `json:"created_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 	KeyCreatedAt  *time.Time `json:"key_created_at,omitempty"`
+	// HostKeys are the fingerprints of pinned host keys.
+	HostKeys []string `json:"host_keys,omitempty"`
 }
 
 func timePtr(t time.Time) *time.Time {
@@ -696,6 +706,7 @@ func View(e *model.Entry) EntryView {
 		Tags: e.Tags, Favorite: e.Favorite, Notes: e.Notes,
 		HasPrivateKey: e.Key != "",
 		CreatedAt:     timePtr(e.CreatedAt), UpdatedAt: timePtr(e.UpdatedAt), KeyCreatedAt: timePtr(e.KeyCreatedAt),
+		HostKeys: sshutil.HostKeyFingerprints(e.HostKeys),
 	}
 	if line, err := sshutil.EntryPublicKey(e.Key, e.PubKey); err == nil {
 		if canon, pub, err := sshutil.CanonicalAuthorizedKey(line); err == nil {
@@ -832,6 +843,9 @@ func (a *App) Show(name string, asJSON bool) error {
 		age := a.now().Sub(*v.KeyCreatedAt)
 		fmt.Fprintf(w, "Key created:  %s (%d days ago)\n", v.KeyCreatedAt.Format(time.DateOnly), int(age.Hours()/24))
 	}
+	for _, fp := range v.HostKeys {
+		fmt.Fprintf(w, "Host key:     pinned %s\n", fp)
+	}
 	if v.PublicKey != "" {
 		fmt.Fprintf(w, "Public key:   %s\n", v.PublicKey)
 	}
@@ -892,7 +906,11 @@ func (a *App) Connect(name string, acceptNew bool, remote []string) error {
 	if err != nil {
 		return err
 	}
-	return sshutil.Connect(e, a.sshOptions(acceptNew, remote))
+	err = sshutil.Connect(e, a.sshOptions(acceptNew, remote))
+	if len(e.HostKeys) > 0 && sshutil.ExitCode(err) == 255 {
+		a.notef("note: %q has a pinned host key (see 'sshman show %s'). If ssh reported a changed host key and the change is expected, check the new fingerprint and run 'sshman pin %s' again.", name, name, name)
+	}
+	return err
 }
 
 // SendKey installs the entry's public key on its host. With via, the vault
@@ -981,5 +999,49 @@ func (a *App) Rotate(name, keyType string, bits int, acceptNew bool) error {
 		return fmt.Errorf("the new key is saved in the vault, but removing the old key failed, so it still works on the server; remove this line from authorized_keys by hand:\n  %s\n(%v)", oldLine, err)
 	}
 	a.notef("Rotated %q to %s; the old key was removed from %s.", name, kp.Fingerprint, old.AddrPort())
+	return nil
+}
+
+// Pin records the host key of an entry's server in the vault, so that ssh
+// trusts only that key for the entry, whatever known_hosts says. It logs in
+// with the entry's key; ssh shows the fingerprint for the user to confirm.
+// With clear, the pin is removed instead.
+func (a *App) Pin(name string, acceptNew, clear bool) error {
+	pw, entries, _, err := a.unlock()
+	if err != nil {
+		return err
+	}
+	defer zero(pw)
+	cur := model.FindByName(entries, name)
+	if cur == nil {
+		return fmt.Errorf("%w: %q", ErrEntryNotFound, name)
+	}
+	var lines []string
+	if !clear {
+		a.notef("Connecting to %s with an empty known_hosts: check the fingerprint ssh shows before accepting it.", cur.AddrPort())
+		if lines, err = sshutil.PinHostKey(cur, a.sshOptions(acceptNew, nil)); err != nil {
+			// %v: say what failed instead of passing ssh's status through silently.
+			return fmt.Errorf("pinning the host key of %q failed; nothing was changed: %v", name, err)
+		}
+	}
+	old := *cur
+	err = vault.Update(a.VaultPath, pw, func(entries []model.Entry) ([]model.Entry, error) {
+		e := model.FindByName(entries, name)
+		if e == nil || e.Host != old.Host || e.Port != old.Port {
+			return nil, fmt.Errorf("%w: entry %q changed while pinning", ErrEntryExists, name)
+		}
+		e.HostKeys, e.UpdatedAt = lines, a.now()
+		return entries, nil
+	})
+	if err != nil {
+		return a.explainLoad(err)
+	}
+	if clear {
+		a.notef("Host key pin removed from %q; ssh uses your known_hosts again.", name)
+		return nil
+	}
+	for _, fp := range sshutil.HostKeyFingerprints(lines) {
+		a.notef("Pinned %s for %q.", fp, name)
+	}
 	return nil
 }

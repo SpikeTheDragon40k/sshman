@@ -12,11 +12,14 @@ import (
 // fakeSSH "logs in" only when the key named by IdentityFile (or, without
 // one, any key: password login) is listed in $HOME/.ssh/authorized_keys,
 // then runs the remote command locally with sh, as a real server would.
+// Given an empty UserKnownHostsFile, it records $FAKE_HOSTKEY there, as ssh
+// does when the user accepts a new host key.
 const fakeSSH = `#!/bin/sh
 id=""
+kh=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -o) case "$2" in IdentityFile=*) id="${2#IdentityFile=}";; esac; shift 2;;
+    -o) case "$2" in IdentityFile=*) id="${2#IdentityFile=}";; UserKnownHostsFile=*) kh="${2#UserKnownHostsFile=}";; esac; shift 2;;
     -p) shift 2;;
     --) shift; break;;
     *) shift;;
@@ -27,7 +30,8 @@ if [ -n "$id" ]; then
   key=$(cut -d' ' -f1,2 "$id")
   grep -qF "$key" "$HOME/.ssh/authorized_keys" 2>/dev/null || { echo "Permission denied (publickey)" >&2; exit 255; }
 fi
-exec sh -c "$1"
+if [ -n "$kh" ] && [ ! -s "$kh" ]; then echo "$FAKE_HOSTKEY" >> "$kh"; fi
+exec sh -c "$*"
 `
 
 func setupRotate(t *testing.T) (*harness, string) {
@@ -97,5 +101,61 @@ func TestRotateFailsSafely(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(ak); string(b) != "ssh-ed25519 AAAAunrelated x\n" {
 		t.Fatalf("authorized_keys changed:\n%s", b)
+	}
+}
+
+// F-09 through the CLI: pin, show, the pin is dropped when the host changes,
+// and --clear removes it. F: the entry name works as an argument.
+func TestPinAndPositionalName(t *testing.T) {
+	h, ak := setupRotate(t)
+	if err := os.WriteFile(ak, []byte(h.pubkey("web")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hostKey := "web.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGGh3LCAgsg8tKu9nQ8zwHdsGDXUwq0O2x6Pi3P1vGgZ"
+	t.Setenv("FAKE_HOSTKEY", hostKey)
+
+	h.pw(goodPW)
+	if code := h.run("pin", "web"); code != 0 {
+		t.Fatalf("pin: %s", h.errb.String())
+	}
+	if !strings.Contains(h.errb.String(), "Pinned ssh-ed25519 SHA256:") {
+		t.Fatalf("no fingerprint printed: %s", h.errb.String())
+	}
+	h.pw(goodPW)
+	if code := h.run("show", "web"); code != 0 || !strings.Contains(h.out.String(), "Host key:     pinned ssh-ed25519 SHA256:") {
+		t.Fatalf("show: %s %s", h.out.String(), h.errb.String())
+	}
+	h.pw(goodPW)
+	if code := h.run("connect", "web", "--", "echo", "CONNECTED"); code != 0 || !strings.Contains(h.out.String(), "CONNECTED") {
+		t.Fatalf("connect web -- cmd: %s %s", h.out.String(), h.errb.String())
+	}
+
+	h.pw(goodPW)
+	if code := h.run("update", "--host", "web2.example", "web"); code != 0 || !strings.Contains(h.errb.String(), "pinned host key was removed") {
+		t.Fatalf("update: %s", h.errb.String())
+	}
+	h.pw(goodPW)
+	h.run("show", "--json", "web")
+	if strings.Contains(h.out.String(), "host_keys") {
+		t.Fatalf("pin kept after host change: %s", h.out.String())
+	}
+
+	h.pw(goodPW)
+	h.run("pin", "web")
+	h.pw(goodPW)
+	if code := h.run("pin", "--clear", "web"); code != 0 {
+		t.Fatal(h.errb.String())
+	}
+	h.pw(goodPW)
+	h.run("show", "--json", "web")
+	if strings.Contains(h.out.String(), "host_keys") {
+		t.Fatalf("pin not cleared: %s", h.out.String())
+	}
+
+	// Positional-name errors need no password.
+	for _, args := range [][]string{{"show"}, {"show", "web", "--json"}, {"show", "web", "extra"}, {"connect", "web", "-v"}} {
+		if code := h.run(args...); code != 2 {
+			t.Fatalf("%v: exit %d, want 2 (usage): %s", args, code, h.errb.String())
+		}
 	}
 }

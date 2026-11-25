@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/sshman-org/sshman/app"
@@ -130,7 +131,36 @@ func entryInput(c *cli.Context) app.EntryInput {
 }
 
 func nameFlag() cli.Flag {
-	return &cli.StringFlag{Name: "name", Aliases: []string{"n"}, Usage: "entry name", Required: true}
+	return &cli.StringFlag{Name: "name", Aliases: []string{"n"}, Usage: "entry name (or give it as the first argument)"}
+}
+
+// entryName returns the entry named by --name or, failing that, by the first
+// argument ("sshman connect web"), plus the remaining arguments.
+func entryName(c *cli.Context) (string, []string, error) {
+	name, args := c.String("name"), c.Args().Slice()
+	if name == "" {
+		if len(args) == 0 || args[0] == "--" {
+			return "", nil, &app.UsageError{Err: fmt.Errorf("entry name required: sshman %s NAME (or --name NAME)", c.Command.Name)}
+		}
+		name, args = args[0], args[1:]
+		// "sshman connect web -- cmd": flag parsing stopped at "web", so
+		// the "--" separator is still here.
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		} else if len(args) > 0 && strings.HasPrefix(args[0], "-") {
+			return "", nil, &app.UsageError{Err: fmt.Errorf("flag %s after the entry name: put flags before NAME (a remote command goes after --)", args[0])}
+		}
+	}
+	return name, args, nil
+}
+
+// oneName is entryName for commands that take no other arguments.
+func oneName(c *cli.Context) (string, error) {
+	name, rest, err := entryName(c)
+	if err == nil && len(rest) > 0 {
+		err = &app.UsageError{Err: fmt.Errorf("unexpected arguments: %s", strings.Join(rest, " "))}
+	}
+	return name, err
 }
 
 // Commands returns the subcommands.
@@ -200,7 +230,11 @@ func Commands(env *Env) []*cli.Command {
 			Usage: "show an entry's details and public key (never the private key)",
 			Flags: []cli.Flag{nameFlag(), &cli.BoolFlag{Name: "json", Usage: "JSON output"}, vaultFlag()},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Show(c.String("name"), c.Bool("json"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Show(name, c.Bool("json"))
 			}),
 		},
 		{
@@ -208,7 +242,11 @@ func Commands(env *Env) []*cli.Command {
 			Usage: "print an entry's public key in authorized_keys format",
 			Flags: []cli.Flag{nameFlag(), vaultFlag()},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.PubKey(c.String("name"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.PubKey(name)
 			}),
 		},
 		{
@@ -216,7 +254,11 @@ func Commands(env *Env) []*cli.Command {
 			Usage: "copy the ssh command for an entry to the clipboard",
 			Flags: []cli.Flag{nameFlag(), vaultFlag()},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Copy(c.String("name"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Copy(name)
 			}),
 		},
 		{
@@ -256,7 +298,11 @@ func Commands(env *Env) []*cli.Command {
 					v := c.Bool("favorite")
 					in.Favorite = &v
 				}
-				return a.Update(c.String("name"), in)
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Update(name, in)
 			}),
 		},
 		{
@@ -264,7 +310,11 @@ func Commands(env *Env) []*cli.Command {
 			Usage: "rename an entry",
 			Flags: []cli.Flag{nameFlag(), &cli.StringFlag{Name: "to", Usage: "new name", Required: true}, vaultFlag()},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Rename(c.String("name"), c.String("to"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Rename(name, c.String("to"))
 			}),
 		},
 		{
@@ -272,7 +322,11 @@ func Commands(env *Env) []*cli.Command {
 			Usage: "delete an entry",
 			Flags: []cli.Flag{nameFlag(), &cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "do not ask for confirmation"}, vaultFlag()},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Delete(c.String("name"), c.Bool("yes"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Delete(name, c.Bool("yes"))
 			}),
 		},
 		{
@@ -285,7 +339,11 @@ func Commands(env *Env) []*cli.Command {
 				vaultFlag(),
 			},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Connect(c.String("name"), c.Bool("accept-new-host-key"), c.Args().Slice())
+				name, remote, err := entryName(c)
+				if err != nil {
+					return err
+				}
+				return a.Connect(name, c.Bool("accept-new-host-key"), remote)
 			}),
 		},
 		{
@@ -300,7 +358,11 @@ func Commands(env *Env) []*cli.Command {
 				vaultFlag(),
 			},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.SendKey(c.String("name"), c.String("via"), c.Bool("accept-new-host-key"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.SendKey(name, c.String("via"), c.Bool("accept-new-host-key"))
 			}),
 		},
 		{
@@ -317,7 +379,32 @@ func Commands(env *Env) []*cli.Command {
 				vaultFlag(),
 			},
 			Action: action(env, func(c *cli.Context, a *app.App) error {
-				return a.Rotate(c.String("name"), c.String("type"), c.Int("bits"), c.Bool("accept-new-host-key"))
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Rotate(name, c.String("type"), c.Int("bits"), c.Bool("accept-new-host-key"))
+			}),
+		},
+		{
+			Name:  "pin",
+			Usage: "pin the host key of an entry's server in the vault",
+			Description: "Logs in with the entry's vault key using an empty known_hosts, so ssh shows the\n" +
+				"server's fingerprint to confirm. From then on connect, sendkey and rotate trust only\n" +
+				"the pinned key for this entry, whatever ~/.ssh/known_hosts says. Run it again to\n" +
+				"replace the pin, or with --clear to remove it.",
+			Flags: []cli.Flag{
+				nameFlag(),
+				&cli.BoolFlag{Name: "accept-new-host-key", Usage: "pin the key ssh receives without asking (check the fingerprint printed afterwards)"},
+				&cli.BoolFlag{Name: "clear", Usage: "remove the pin"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				name, err := oneName(c)
+				if err != nil {
+					return err
+				}
+				return a.Pin(name, c.Bool("accept-new-host-key"), c.Bool("clear"))
 			}),
 		},
 		{

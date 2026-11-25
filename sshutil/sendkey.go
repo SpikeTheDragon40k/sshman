@@ -3,7 +3,6 @@ package sshutil
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -111,7 +110,12 @@ func SendPublicKey(e *model.Entry, via *model.Entry, opts Options) error {
 		return err
 	}
 	if via == nil {
-		return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), sendKeyArgs(e, keyLine, &opts)...), &opts)
+		args, done, err := sshArgs(e, &opts, sendKeyArgs(e, keyLine, &opts))
+		if err != nil {
+			return err
+		}
+		defer done()
+		return runSSH(opts.sshPath(), args, &opts)
 	}
 	if via.Key == "" {
 		return fmt.Errorf("entry %q has no private key to log in with", via.Name)
@@ -121,7 +125,12 @@ func SendPublicKey(e *model.Entry, via *model.Entry, opts Options) error {
 		return err
 	}
 	defer s.close()
-	return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), sendKeyViaArgs(e, remoteInstallCommand(keyLine), s.sock, s.pubFile, &opts)...), &opts)
+	args, done, err := sshArgs(e, &opts, sendKeyViaArgs(e, remoteInstallCommand(keyLine), s.sock, s.pubFile, &opts))
+	if err != nil {
+		return err
+	}
+	defer done()
+	return runSSH(opts.sshPath(), args, &opts)
 }
 
 // RemovePublicKey logs in with e's own vault key and removes oldLine's key
@@ -148,5 +157,10 @@ func RemovePublicKey(e *model.Entry, oldLine string, opts Options) error {
 	}
 	defer s.close()
 	cmd := "sh -c '" + removeKeyScript(old, keep) + "'"
-	return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), sendKeyViaArgs(e, cmd, s.sock, s.pubFile, &opts)...), &opts)
+	args, done, err := sshArgs(e, &opts, sendKeyViaArgs(e, cmd, s.sock, s.pubFile, &opts))
+	if err != nil {
+		return err
+	}
+	defer done()
+	return runSSH(opts.sshPath(), args, &opts)
 }

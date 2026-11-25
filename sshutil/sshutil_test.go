@@ -359,6 +359,52 @@ func TestRemoveKeyScriptLocally(t *testing.T) {
 	}
 }
 
+// F-09: pinned keys are written to a private file that ssh must use for both
+// known_hosts files, with strict checking placed before any accept-new
+// (ssh keeps the first value of an option).
+func TestSSHArgsPinnedHostKeys(t *testing.T) {
+	e := &model.Entry{Name: "n", User: "bob", Host: "h.example"}
+	args, done, err := sshArgs(e, &Options{}, []string{"-o", "StrictHostKeyChecking=accept-new", "--", "bob@h.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done()
+	if slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, "KnownHostsFile") }) {
+		t.Fatalf("no pins, but known_hosts options set: %v", args)
+	}
+
+	_, pub := genEd25519(t, "")
+	e.HostKeys = []string{"h.example " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))}
+	args, done, err = sshArgs(e, &Options{}, []string{"-o", "StrictHostKeyChecking=accept-new", "--", "bob@h.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file string
+	for _, a := range args {
+		if f, ok := strings.CutPrefix(a, "UserKnownHostsFile="); ok {
+			file = f
+		}
+	}
+	if file == "" || !slices.Contains(args, "GlobalKnownHostsFile="+file) {
+		t.Fatalf("pin file not used for both known_hosts options: %v", args)
+	}
+	if b, err := os.ReadFile(file); err != nil || string(b) != e.HostKeys[0]+"\n" {
+		t.Fatalf("pin file %q: %v", b, err)
+	}
+	if strict, accept := slices.Index(args, "StrictHostKeyChecking=yes"), slices.Index(args, "StrictHostKeyChecking=accept-new"); strict < 0 || strict > accept {
+		t.Fatalf("StrictHostKeyChecking=yes must come first: %v", args)
+	}
+	done()
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("pin file not cleaned up: %v", err)
+	}
+
+	e.HostKeys = []string{"h.example not-a-key"}
+	if _, _, err := sshArgs(e, &Options{}, nil); err == nil {
+		t.Fatal("invalid pinned line accepted")
+	}
+}
+
 func TestSendKeyArgs(t *testing.T) {
 	e := &model.Entry{Name: "n", User: "bob", Host: "h.example", Port: 2200}
 	args := sendKeyArgs(e, "ssh-ed25519 AAAA c", &Options{})

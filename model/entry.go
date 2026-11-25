@@ -27,6 +27,9 @@ type Entry struct {
 	// KeyCreatedAt records when the key material was generated or imported,
 	// for rotation reminders.
 	KeyCreatedAt time.Time `json:"key_created_at,omitzero"`
+	// HostKeys are known_hosts lines pinned for this entry. When set, ssh
+	// trusts only these keys for the host (see sshman pin).
+	HostKeys []string `json:"host_keys,omitempty"`
 }
 
 func (e *Entry) Addr() string {

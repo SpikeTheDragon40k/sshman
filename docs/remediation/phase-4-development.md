@@ -14,7 +14,7 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
 | F-06 | Structured JSON output + exit codes | 7 | 9 | 9 | 9 | 10 | 10 | **8.6** | Implemented (Phase 3) |
 | F-07 | Encrypted export/import of selected entries | 7 | 6 | 6 | 6 | 10 | 10 | **6.9** | Backlog |
 | F-08 | Import from `~/.ssh/config` (hosts only, no keys) | 7 | 8 | 6 | 6 | 9 | 10 | **7.3** | Backlog (next) |
-| F-09 | Per-entry pinned host key (dedicated `UserKnownHostsFile`) | 6 | 9 | 6 | 7 | 8 | 10 | **7.3** | Backlog (next) |
+| F-09 | Per-entry pinned host key (dedicated `UserKnownHostsFile`) | 6 | 9 | 6 | 7 | 8 | 10 | **7.3** | Implemented (`pin`) |
 | F-10 | Windows named-pipe agent (`connect` on Windows) | 7 | 6 | 3 | 5 | 10 | 10 | **6.3** | Implemented: named-pipe agent (D-10, Q-13; commits 7cbd42d, fbe68e1, 2a17117) |
 | F-11 | Hardware/FIDO2 keys | 7 | 9 | 2 | 4 | 5 | 10 | **6.3** | Rejected for now: x/crypto can't sign with `sk-*` keys in-process; would mean delegating to ssh-agent, changing the trust model |
 | F-12 | Windows ACL checks | 4 | 8 | 5 | 6 | 3 | 10 | **5.7** | Implemented: owner and ACL checks, owner-only ACL on new files (Q-13; commit 2a17117) |
@@ -23,6 +23,7 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
 | F-15 | OS keychain session cache | 6 | 4 | 4 | 3 | 4 | 10 | **4.8** | Rejected (adds a second secret store; needs explicit approval) |
 | F-16 | Connection history | 4 | 5 | 8 | 7 | 10 | 6 | **6.0** | Rejected: a vault write per connect churns the backup and records metadata (D-15) |
 | F-17 | One-step rotation `rotate` (install new, save, remove old) | 8 | 8 | 7 | 7 | 8 | 10 | **7.8** | Implemented (supersedes the manual F-03 steps) |
+| F-18 | Entry name as a positional argument (`sshman connect web`) | 6 | 10 | 9 | 9 | 10 | 10 | **8.5** | Implemented |
 | — | Cloud sync, telemetry | — | — | — | — | — | — | — | Out of scope without explicit approval |
 
 ## 2. Implemented features
@@ -66,10 +67,19 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
 ### F-06 JSON and exit codes
 `list/search/show --json`; exit codes documented in the README. Covered in Phase 3.
 
+### F-09 Host-key pinning
+- **Workflow:** `sshman pin web` logs in with the entry's vault key using an empty, private known_hosts; ssh shows the fingerprint to confirm (or `--accept-new-host-key`). The lines ssh records are stored in the entry (`host_keys`, additive field). `pin` again replaces the pin, `pin --clear` removes it; `show` prints the pinned fingerprints.
+- **Enforcement:** for pinned entries, `connect`, `sendkey` (both forms) and `rotate` write the pins to a 0600 file in a private temp dir and pass it as both `UserKnownHostsFile` and `GlobalKnownHostsFile`, with `StrictHostKeyChecking=yes` (placed before any accept-new; ssh keeps the first value) and `UpdateHostKeys=no`. The file is deleted afterwards.
+- **Edge cases:** `update --host/--port` drops the pin (it would no longer match); `pin` refuses to save if the entry's host or port changed meanwhile; a failed pinned `connect` prints how to re-pin after a legitimate key change.
+- **Tests:** `TestSSHArgsPinnedHostKeys`, `TestPinAndPositionalName`, `TestIntegrationPinnedHostKey` (real sshd: pin, connect with no known_hosts, MITM key refused even with accept-new).
+
+### F-18 Positional entry name
+- **Workflow:** every command acting on one existing entry accepts `NAME` as its first argument as well as `--name`. Flags must precede the name; a flag after it is a usage error rather than being sent as a remote command.
+- **Tests:** `TestPinAndPositionalName`.
+
 ## 3. Next candidates (designs)
 
 - **F-08 Import from ssh_config:** parse `Host` blocks (HostName, User, Port) into entries without keys, then `add --key` or `genkey` per entry. Acceptance: no key files are read implicitly; there's a dry-run preview; existing names are never overwritten. Tests: fixture configs with `Include` and `Match` (`Match` blocks are skipped).
-- **F-09 Host-key pinning:** store the host key on first connect (opt-in) and pass `-o UserKnownHostsFile=<tmp pinned file> -o StrictHostKeyChecking=yes` for that entry. Acceptance: a changed key fails with both fingerprints shown. Tests: the integration lab's MITM scenario.
 - **F-07 Encrypted export:** export selected entries to a new vault-format file under a separate password (reusing `vault` code). Acceptance: the export is never plaintext; there's an import preview; names never collide silently.
 
 ## 4. Acceptance gate

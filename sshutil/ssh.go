@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"sync"
 
@@ -172,7 +171,12 @@ func Connect(e *model.Entry, opts Options) error {
 		return err
 	}
 	defer s.close()
-	return runSSH(opts.sshPath(), append(slices.Clone(opts.testArgs), connectArgs(e, s.sock, s.pubFile, &opts)...), &opts)
+	args, done, err := sshArgs(e, &opts, connectArgs(e, s.sock, s.pubFile, &opts))
+	if err != nil {
+		return err
+	}
+	defer done()
+	return runSSH(opts.sshPath(), args, &opts)
 }
 
 // runSSH runs ssh in the foreground. SIGINT is left to ssh (it shares the
