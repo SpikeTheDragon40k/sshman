@@ -312,6 +312,33 @@ func TestIntegrationSendKeyViaAndIdempotent(t *testing.T) {
 	}
 }
 
+// Rotation: install the new key with the old one, then remove the old key by
+// logging in with the new one. Afterwards only the new key logs in.
+func TestIntegrationRotateRemovesOldKey(t *testing.T) {
+	l := newLab(t, "")
+	l.trustHostKey()
+	old := l.entry(t, "old", true)
+	newE := l.entry(t, "new", false)
+	newE.Name = "old"
+	opts := Options{SSHPath: l.wrapper, Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	if err := SendPublicKey(newE, old, opts); err != nil {
+		t.Fatalf("install: %v %s", err, opts.Stderr)
+	}
+	oldLine, err := EntryPublicKey(old.Key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RemovePublicKey(newE, oldLine, opts); err != nil {
+		t.Fatalf("remove: %v %s", err, opts.Stderr)
+	}
+	if _, _, err := l.connect(old, Options{}, "true"); err == nil {
+		t.Fatal("old key still logs in")
+	}
+	if out, errs, err := l.connect(newE, Options{}, "echo", "NEW_OK"); err != nil || !strings.Contains(out, "NEW_OK") {
+		t.Fatalf("new key: %v %s", err, errs)
+	}
+}
+
 // Session cleanup: no socket directory is left behind.
 func TestIntegrationSessionCleanup(t *testing.T) {
 	l := newLab(t, "")

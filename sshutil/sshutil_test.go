@@ -298,6 +298,67 @@ func TestInstallKeyScriptLocally(t *testing.T) {
 	}
 }
 
+// Rotation: the old key's lines go, every other line stays, and nothing is
+// touched unless the key used to log in is present.
+func TestRemoveKeyScriptLocally(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs POSIX sh")
+	}
+	shPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	canon := func() string {
+		_, pub := genEd25519(t, "")
+		line, _, err := CanonicalAuthorizedKey(strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) + " c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return line
+	}
+	oldL, newL, other := canon(), canon(), canon()
+	home := t.TempDir()
+	ak := filepath.Join(home, ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(ak), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func() error {
+		cmd := exec.Command(shPath, "-c", "sh -c '"+removeKeyScript(oldL, newL)+"'")
+		cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+		return cmd.Run()
+	}
+	// New key missing: refuse and leave the file alone.
+	before := oldL + "\n" + other + "\n"
+	if err := os.WriteFile(ak, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if run() == nil {
+		t.Fatal("removed the old key although the new one is not installed")
+	}
+	if b, _ := os.ReadFile(ak); string(b) != before {
+		t.Fatalf("file changed:\n%s", b)
+	}
+	// Normal case: old key (with options and another comment) removed.
+	opts := "from=\"10.0.0.1\" " + typeAndBlob(oldL) + " laptop"
+	if err := os.WriteFile(ak, []byte(oldL+"\n"+other+"\n"+opts+"\n"+newL+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // second run: old key already gone, still succeeds
+		if err := run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b, _ := os.ReadFile(ak); string(b) != other+"\n"+newL+"\n" {
+		t.Fatalf("unexpected result:\n%s", b)
+	}
+	if fi, _ := os.Stat(ak); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+	if m, _ := filepath.Glob(ak + ".sshman.*"); len(m) != 0 {
+		t.Fatalf("temp file left: %v", m)
+	}
+}
+
 func TestSendKeyArgs(t *testing.T) {
 	e := &model.Entry{Name: "n", User: "bob", Host: "h.example", Port: 2200}
 	args := sendKeyArgs(e, "ssh-ed25519 AAAA c", &Options{})

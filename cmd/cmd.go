@@ -304,6 +304,23 @@ func Commands(env *Env) []*cli.Command {
 			}),
 		},
 		{
+			Name:  "rotate",
+			Usage: "replace an entry's key on its host and in the vault",
+			Description: "Generates a new key, installs it by logging in with the current key, saves it,\n" +
+				"then logs in with the new key and removes the old one from authorized_keys.\n" +
+				"The old key is only removed after the new one is saved and has logged in.",
+			Flags: []cli.Flag{
+				nameFlag(),
+				&cli.StringFlag{Name: "type", Value: "ed25519", Usage: "new key type: ed25519 (recommended) or rsa"},
+				&cli.IntFlag{Name: "bits", Value: keygen.DefaultRSABits, Usage: "RSA key size: 3072 or 4096"},
+				&cli.BoolFlag{Name: "accept-new-host-key", Usage: "trust and record an unknown host key without asking"},
+				vaultFlag(),
+			},
+			Action: action(env, func(c *cli.Context, a *app.App) error {
+				return a.Rotate(c.String("name"), c.String("type"), c.Int("bits"), c.Bool("accept-new-host-key"))
+			}),
+		},
+		{
 			Name:  "passwd",
 			Usage: "change the vault password (re-encrypts with current parameters)",
 			Flags: []cli.Flag{vaultFlag()},

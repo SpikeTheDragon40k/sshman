@@ -168,24 +168,40 @@ func (a *App) warnWeak(pw []byte) {
 	}
 }
 
-// read decrypts the vault for a read-only command.
-func (a *App) read() ([]model.Entry, error) {
+// unlock asks for the password once and returns the form that opens the
+// vault (the legacy trimmed one if needed) with the vault's entries. The
+// caller must zero the password.
+func (a *App) unlock() ([]byte, []model.Entry, vault.Info, error) {
 	pw, err := a.password("Vault password: ")
 	if err != nil {
-		return nil, err
+		return nil, nil, vault.Info{}, err
 	}
-	defer zero(pw)
 	entries, info, err := vault.LoadInfo(a.VaultPath, pw)
 	if errors.Is(err, vault.ErrAuth) {
 		if alt := legacyTrimmed(pw); alt != nil {
-			defer zero(alt)
-			entries, info, err = vault.LoadInfo(a.VaultPath, alt)
+			if entries, info, err = vault.LoadInfo(a.VaultPath, alt); err == nil {
+				zero(pw)
+				pw = alt
+			} else {
+				zero(alt)
+			}
 		}
 	}
 	if err != nil {
-		return nil, a.explainLoad(err)
+		zero(pw)
+		return nil, nil, vault.Info{}, a.explainLoad(err)
 	}
 	a.warnWeak(pw)
+	return pw, entries, info, nil
+}
+
+// read decrypts the vault for a read-only command.
+func (a *App) read() ([]model.Entry, error) {
+	pw, entries, info, err := a.unlock()
+	if err != nil {
+		return nil, err
+	}
+	zero(pw)
 	if info.Outdated() {
 		a.notef("note: this vault uses format v%d; it is upgraded automatically on the next change", info.Version)
 	}
@@ -468,23 +484,12 @@ func (a *App) GenKey(in EntryInput, keyType string, bits int) error {
 	if err := validateTags(e.Tags); err != nil {
 		return usage(err)
 	}
-	var gen func() (*keygen.KeyPair, error)
-	switch keyType {
-	case "ed25519", "":
-		gen = func() (*keygen.KeyPair, error) { return keygen.GenerateEd25519("sshman:" + e.Name) }
-	case "rsa":
-		if bits == 0 {
-			bits = keygen.DefaultRSABits
-		}
-		if !slices.Contains(keygen.AllowedRSABits, bits) {
-			return usage(fmt.Errorf("unsupported RSA key size %d: use 3072 or 4096", bits))
-		}
-		gen = func() (*keygen.KeyPair, error) { return keygen.GenerateRSA(bits, "sshman:"+e.Name) }
-	default:
-		return usage(fmt.Errorf("unsupported key type %q: use ed25519 (recommended) or rsa", keyType))
+	gen, err := keyGenerator(keyType, bits, "sshman:"+e.Name)
+	if err != nil {
+		return err
 	}
 	var kp *keygen.KeyPair
-	err := a.update(func(entries []model.Entry) ([]model.Entry, error) {
+	err = a.update(func(entries []model.Entry) ([]model.Entry, error) {
 		if model.FindByName(entries, e.Name) != nil {
 			return nil, fmt.Errorf("%w: %q", ErrEntryExists, e.Name)
 		}
@@ -503,6 +508,23 @@ func (a *App) GenKey(in EntryInput, keyType string, bits int) error {
 	a.notef("Key pair generated for %q (%s). Install it with: sshman sendkey --name %s", e.Name, kp.Fingerprint, e.Name)
 	fmt.Fprint(a.Stdout, kp.PublicKey)
 	return nil
+}
+
+// keyGenerator validates the key type and size for genkey and rotate.
+func keyGenerator(keyType string, bits int, comment string) (func() (*keygen.KeyPair, error), error) {
+	switch keyType {
+	case "ed25519", "":
+		return func() (*keygen.KeyPair, error) { return keygen.GenerateEd25519(comment) }, nil
+	case "rsa":
+		if bits == 0 {
+			bits = keygen.DefaultRSABits
+		}
+		if !slices.Contains(keygen.AllowedRSABits, bits) {
+			return nil, usage(fmt.Errorf("unsupported RSA key size %d: use 3072 or 4096", bits))
+		}
+		return func() (*keygen.KeyPair, error) { return keygen.GenerateRSA(bits, comment) }, nil
+	}
+	return nil, usage(fmt.Errorf("unsupported key type %q: use ed25519 (recommended) or rsa", keyType))
 }
 
 // UpdateInput holds optional changes; nil means unchanged.
@@ -889,4 +911,75 @@ func (a *App) SendKey(name, via string, acceptNew bool) error {
 	}
 	a.notef("Installing the public key of %q on %s ...", e.Name, e.AddrPort())
 	return sshutil.SendPublicKey(e, viaEntry, a.sshOptions(acceptNew, nil))
+}
+
+// Rotate replaces an entry's key on its host and in the vault:
+//
+//  1. generate a new key and install it, logging in with the current key;
+//  2. save the new key in the vault (only if the entry was not changed
+//     meanwhile);
+//  3. log in with the new key, which proves it works, and remove the old key
+//     from authorized_keys.
+//
+// The old key is never removed before the new one is saved and has logged
+// in, so a failure at any step leaves a working way in.
+func (a *App) Rotate(name, keyType string, bits int, acceptNew bool) error {
+	gen, err := keyGenerator(keyType, bits, "sshman:"+name)
+	if err != nil {
+		return err
+	}
+	pw, entries, _, err := a.unlock()
+	if err != nil {
+		return err
+	}
+	defer zero(pw)
+	cur := model.FindByName(entries, name)
+	if cur == nil {
+		return fmt.Errorf("%w: %q", ErrEntryNotFound, name)
+	}
+	if cur.Key == "" {
+		return usage(fmt.Errorf("entry %q has no private key; rotate logs in with the current key (use genkey and sendkey instead)", name))
+	}
+	if err := sshutil.ValidateEntry(cur); err != nil {
+		return usage(err)
+	}
+	oldLine, err := sshutil.EntryPublicKey(cur.Key, cur.PubKey)
+	if err != nil {
+		return fmt.Errorf("entry %q: %w", name, err)
+	}
+	old := *cur
+	kp, err := gen()
+	if err != nil {
+		return err
+	}
+	next := old
+	next.Key, next.PubKey = kp.PrivatePEM, strings.TrimSpace(kp.PublicKey)
+	opts := a.sshOptions(acceptNew, nil)
+
+	a.notef("Installing the new key (%s) on %s with the current key ...", kp.Fingerprint, old.AddrPort())
+	if err := sshutil.SendPublicKey(&next, &old, opts); err != nil {
+		// %v, not %w: report which step failed instead of passing ssh's exit
+		// status through silently.
+		return fmt.Errorf("installing the new key failed; nothing was changed: %v", err)
+	}
+
+	err = vault.Update(a.VaultPath, pw, func(entries []model.Entry) ([]model.Entry, error) {
+		e := model.FindByName(entries, name)
+		if e == nil || e.Key != old.Key {
+			return nil, fmt.Errorf("%w: entry %q changed while rotating", ErrEntryExists, name)
+		}
+		now := a.now()
+		e.Key, e.PubKey, e.KeyCreatedAt, e.UpdatedAt = next.Key, next.PubKey, now, now
+		return entries, nil
+	})
+	if err != nil {
+		return fmt.Errorf("the new key was installed on the server but could not be saved, so the old key stays in use (the new public key %s can be removed from authorized_keys): %w", kp.Fingerprint, a.explainLoad(err))
+	}
+
+	a.notef("New key saved. Logging in with it to remove the old key ...")
+	if err := sshutil.RemovePublicKey(&next, oldLine, opts); err != nil {
+		return fmt.Errorf("the new key is saved in the vault, but removing the old key failed, so it still works on the server; remove this line from authorized_keys by hand:\n  %s\n(%v)", oldLine, err)
+	}
+	a.notef("Rotated %q to %s; the old key was removed from %s.", name, kp.Fingerprint, old.AddrPort())
+	return nil
 }

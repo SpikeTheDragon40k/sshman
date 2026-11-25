@@ -12,7 +12,7 @@
 * `connect` loads the key into a **private, read-only, per-session agent** that only your `ssh` child process uses; **agent forwarding is always disabled** for it
 * Safe vault writes: locked, atomic, fsynced, with an automatic encrypted backup and `restore`
 * Generate ed25519 (default) or RSA 3072/4096 keys, or import existing keys (passphrase-protected keys are supported)
-* Install a public key on a server (`sendkey`), including password-only servers and key rotation (`--via`)
+* Install a public key on a server (`sendkey`), including password-only servers, and rotate keys in one step (`rotate`)
 * Tags, favorites, notes, search, JSON output, explicit exit codes, shell completion
 * No daemon, no network service, no telemetry, no cloud sync
 
@@ -82,6 +82,7 @@ cat id_ed25519 | sshman add --name db2 --user admin --host 10.0.0.6 --key -   # 
 | `delete --name N` | Delete an entry (asks; `--yes` to skip) |
 | `connect --name N [-- CMD…]` | SSH session (or remote command) with the vault key |
 | `sendkey --name N [--via M]` | Append the public key to the remote `authorized_keys`, unless already present |
+| `rotate --name N [--type T] [--bits B]` | Replace the entry's key on its host and in the vault, then remove the old key from `authorized_keys` |
 | `passwd` | Change the vault password; re-encrypts with current parameters |
 | `restore` | Replace a damaged vault with its automatic backup |
 | `doctor` | Check vault location, permissions, format and ssh, without the password |
@@ -97,12 +98,18 @@ Every command accepts `--vault PATH`; `sshman --vault PATH <command>` also works
 
 ```bash
 sshman list --key-older-than 365                       # find old keys
-sshman genkey --name web-2027 --user deploy --host web.example.com
-sshman sendkey --name web-2027 --via web               # log in with the old key to install the new one
-sshman connect --name web-2027 -- true                 # verify
-# remove the old key line from the server's authorized_keys, then:
-sshman delete --name web --yes
+sshman rotate --name web                               # new key in, old key out
 ```
+
+`rotate` asks for the vault password once, then:
+
+1. generates a new key and installs it on the host, logging in with the current key;
+2. saves the new key in the vault (the previous vault stays in the backup);
+3. logs in with the new key, which proves it works, and removes the old key from `authorized_keys`.
+
+The old key is only removed once the new one is saved and has logged in, so a failure at any step leaves you a working way in. If the last step fails, `rotate` prints the old key line to remove by hand. Other lines in `authorized_keys` are left untouched.
+
+To rotate by hand instead (for example to keep both keys for a while), use `genkey` for a new entry, then `sendkey --via` with the old one.
 
 ### Scripting
 

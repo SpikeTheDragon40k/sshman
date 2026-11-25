@@ -22,6 +22,7 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
 | F-14 | Desktop GUI | 5 | 6 | 1 | 2 | 5 | 8 | **4.4** | Deferred; the `app` layer keeps the logic UI-independent |
 | F-15 | OS keychain session cache | 6 | 4 | 4 | 3 | 4 | 10 | **4.8** | Rejected (adds a second secret store; needs explicit approval) |
 | F-16 | Connection history | 4 | 5 | 8 | 7 | 10 | 6 | **6.0** | Rejected: a vault write per connect churns the backup and records metadata (D-15) |
+| F-17 | One-step rotation `rotate` (install new, save, remove old) | 8 | 8 | 7 | 7 | 8 | 10 | **7.8** | Implemented (supersedes the manual F-03 steps) |
 | — | Cloud sync, telemetry | — | — | — | — | — | — | — | Out of scope without explicit approval |
 
 ## 2. Implemented features
@@ -47,6 +48,14 @@ Scores are 0–10, where higher is better for every criterion: "complexity" and 
   4. Remove the old key line on the server, then `sshman delete --name web --yes`.
 - **Security:** the same read-only agent and no-forwarding rules apply. The remote append is idempotent and never removes lines; automatic removal of the old key was deliberately not implemented, because remote `authorized_keys` edits beyond append are risky.
 - **Tests:** `TestIntegrationSendKeyViaAndIdempotent`.
+- **Update:** superseded for the common case by F-17 `rotate`, which removes the old key with the safeguards below.
+
+### F-17 One-step rotation
+- **Workflow:** `sshman rotate --name web [--type ed25519|rsa] [--bits N]`. One password prompt.
+- **Order:** (1) generate the new key and install it by logging in with the current key; (2) save it in the vault, only if the entry's key is unchanged since unlock; (3) log in with the new key and remove the old key from `authorized_keys`.
+- **Security:** reverses the F-03 decision not to edit `authorized_keys` beyond appending. The removal is guarded so it cannot lock the user out: it only runs after the new key is saved and has just logged in; the remote script also refuses to change the file unless the new key is listed; only lines carrying the old key's type and blob are dropped; the file is rewritten to a 0600 temp file and renamed. A failure in step 1 changes nothing; in step 2 the old key stays in use; in step 3 the old key line is printed for manual removal.
+- **Limit:** a symlinked `authorized_keys` is replaced by a regular file (marked `shortcut:` in `removeKeyScript`).
+- **Tests:** `TestRemoveKeyScriptLocally`, `TestRotate`, `TestRotateFailsSafely` (fake ssh that enforces `authorized_keys`), `TestIntegrationRotateRemovesOldKey` (real sshd).
 
 ### F-04 Public key export
 `sshman pubkey --name x >> authorized_keys` and `sshman show --name x [--json]`. The private key is never printed by any command. `EntryView` has no private-key field by construction.

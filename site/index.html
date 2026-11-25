@@ -125,7 +125,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
     <div class="card"><h3>Keys never touch disk</h3><p><code>connect</code> loads the key into a per-session, read-only agent used only by your <code>ssh</code> child. Forwarding is always off.</p></div>
     <div class="card"><h3>Safe writes</h3><p>Locked, atomic, fsynced saves with an automatic encrypted backup and one-command <code>restore</code>.</p></div>
     <div class="card"><h3>Generate or import</h3><p>ed25519 by default, RSA 3072/4096 on request. Import existing keys — passphrase-protected ones included.</p></div>
-    <div class="card"><h3>sendkey &amp; rotation</h3><p>Install a public key on password-only servers, or rotate keys with <code>--via</code> using the old one.</p></div>
+    <div class="card"><h3>sendkey &amp; rotation</h3><p>Install a public key on password-only servers, or rotate a key in one step with <code>rotate</code>: new key in, old key out.</p></div>
     <div class="card"><h3>Script friendly</h3><p>Tags, favorites, notes, search, <code>--json</code> output with no secrets, explicit exit codes, shell completion.</p></div>
   </div>
 </div></section>
@@ -161,7 +161,8 @@ gh attestation verify sshman_v*_linux_amd64 --repo sshman-org/sshman</pre></div>
     <tr><td><code>copy</code></td><td>Copy <code>ssh user@host -p port</code> to the clipboard</td></tr>
     <tr><td><code>update</code> / <code>rename</code> / <code>delete</code></td><td>Edit entries</td></tr>
     <tr><td><code>connect</code></td><td>SSH session (or remote command) with the vault key</td></tr>
-    <tr><td><code>sendkey</code></td><td>Append the public key to remote <code>authorized_keys</code> (<code>--via</code> for rotation)</td></tr>
+    <tr><td><code>sendkey</code></td><td>Append the public key to remote <code>authorized_keys</code> (<code>--via</code> to log in with another entry)</td></tr>
+    <tr><td><code>rotate</code></td><td>Replace a key on its host and in the vault, then remove the old one</td></tr>
     <tr><td><code>passwd</code> / <code>restore</code></td><td>Change password, recover from the automatic backup</td></tr>
     <tr><td><code>doctor</code></td><td>Check location, permissions, format and ssh — no password needed</td></tr>
     <tr><td><code>completion</code></td><td>bash / zsh completion script</td></tr>

@@ -55,6 +55,7 @@ type harness struct {
 	vault  string
 	prompt *fakePrompt
 	stdin  string
+	ssh    string // fake ssh executable, if set
 	out    bytes.Buffer
 	errb   bytes.Buffer
 }
@@ -77,7 +78,10 @@ func (h *harness) run(args ...string) int {
 			}
 			return ""
 		},
-		Configure: func(a *app.App) { a.Clipboard = func(string) error { return nil } },
+		Configure: func(a *app.App) {
+			a.Clipboard = func(string) error { return nil }
+			a.SSH.SSHPath = h.ssh
+		},
 	}
 	return Run(env, append([]string{"sshman"}, args...), "test")
 }
