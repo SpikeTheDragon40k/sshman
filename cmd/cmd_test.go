@@ -435,6 +435,29 @@ func TestRestoreCommand(t *testing.T) {
 	}
 }
 
+// A pre-v2 backup made with a padded password must restore with the
+// password as typed, like every other command.
+func TestRestoreLegacyTrimmedBackup(t *testing.T) {
+	h := newHarness(t)
+	data, err := os.ReadFile("testdata/legacy-trimmed.vssh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vault.BackupPath(h.vault), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(h.vault, []byte("corrupted-corrupted-corrupted-corrupted-corrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.pw("  spaced legacy pass  ")
+	if code := h.run("restore", "--yes"); code != 0 {
+		t.Fatalf("restore: %s", h.errb.String())
+	}
+	if !strings.Contains(h.errb.String(), ".corrupt-") {
+		t.Fatalf("kept file not reported: %s", h.errb.String())
+	}
+}
+
 func TestDoctor(t *testing.T) {
 	h := newHarness(t)
 	if code := h.run("doctor"); code == 0 || !strings.Contains(h.out.String(), "does not exist") {

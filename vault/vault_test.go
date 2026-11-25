@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -323,17 +324,28 @@ func TestRestoreFromBackup(t *testing.T) {
 	if _, err := Load(path, pw("pw-restore")); err == nil {
 		t.Fatal("corrupted vault loaded")
 	}
-	n, err := Restore(path, pw("pw-restore"))
+	n, kept, err := Restore(path, pw("pw-restore"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 2 {
 		t.Fatalf("restored %d entries, want 2 (previous version)", n)
 	}
-	if _, err := os.Stat(path + ".corrupt"); err != nil {
-		t.Fatalf("corrupt copy not kept: %v", err)
+	if got, err := os.ReadFile(kept); err != nil || !strings.HasPrefix(string(got), "garbage") {
+		t.Fatalf("corrupt copy not kept at %q: %v", kept, err)
 	}
-	if _, err := Restore(path, pw("wrong")); !errors.Is(err, ErrAuth) {
+	// A second restore must not overwrite the first kept copy.
+	if err := os.WriteFile(path, []byte("second-garbage-second-garbage-second-garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, kept2, err := Restore(path, pw("pw-restore"))
+	if err == nil && kept2 == kept {
+		t.Fatal("second restore reused the kept name")
+	}
+	if got, _ := os.ReadFile(kept); !strings.HasPrefix(string(got), "garbage") {
+		t.Fatal("first corrupt copy was overwritten")
+	}
+	if _, _, err := Restore(path, pw("wrong")); !errors.Is(err, ErrAuth) {
 		t.Fatalf("restore with wrong password: %v", err)
 	}
 }
